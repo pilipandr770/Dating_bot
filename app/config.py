@@ -1,0 +1,17 @@
+# файл: app/config.py
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+POSTGRES_URL = os.getenv("POSTGRES_URL")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ASSISTANT_CHAT_ID = os.getenv("OPENAI_ASSISTANT_ID_CHAT")
+ASSISTANT_ANALYSIS_ID = os.getenv("OPENAI_ASSISTANT_ID_ANALYSIS")
+
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_PRODUCT_URL = os.getenv("STRIPE_PRODUCT_URL")
+STRIPE_SUBSCRIPTION_URL = os.getenv("STRIPE_SUBSCRIPTION_URL")
