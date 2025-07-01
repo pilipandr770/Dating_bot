@@ -1,9 +1,9 @@
-﻿from aiogram import types
+﻿from aiogram import types, Dispatcher
 from aiogram.dispatcher import Dispatcher, FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from sqlalchemy import select, or_
-from app.models.matches import Match
+from app.models.match import Match
 from app.models.user import User
 from app.models.messages import Message
 from app.database import get_session

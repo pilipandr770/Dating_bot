@@ -26,7 +26,8 @@ async def main():
     register_chat_handlers(dp)
 
     # Запуск бота
-    await dp.start_polling(bot, skip_updates=True)
+    # Версія aiogram 2.25.1 
+    await dp.start_polling()
 
 # Старт
 if __name__ == '__main__':

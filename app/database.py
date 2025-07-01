@@ -34,9 +34,21 @@ async def init_db():
         # Якщо таблиць нема, виконуємо schema.sql
         if tables_count == 0:
             print("📦 Таблиці не знайдено — створюємо з schema.sql...")
-            with open("schema.sql", "r", encoding="utf-8") as f:
-                sql = f.read()
-            await conn.execute(text(sql))
+            # Виправлено шлях до schema.sql, щоб працювало з будь-якого місця
+            import os
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            schema_path = os.path.join(base_dir, "schema.sql")
+            with open(schema_path, "r", encoding="utf-8") as f:
+                # Розділяємо SQL на окремі команди
+                sql_commands = f.read().split(';')
+                # Виконуємо кожну команду окремо
+                for command in sql_commands:
+                    # Пропускаємо порожні команди
+                    if command.strip():
+                        try:
+                            await conn.execute(text(command.strip()))
+                        except Exception as e:
+                            print(f"Помилка при виконанні команди: {e}")
             print("✅ Створено всі таблиці.")
         else:
             print("✅ Таблиці вже існують.")

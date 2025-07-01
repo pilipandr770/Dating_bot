@@ -1,9 +1,9 @@
-﻿from aiogram import types
+﻿from aiogram import types, Dispatcher
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select, not_, exists
 from app.database import get_session
 from app.models.user import User
-from app.models.swipe import Swipe
+from app.models.swipes import Swipe
 
 async def show_next_profile(message: types.Message):
     current_user_id = str(message.from_user.id)
@@ -48,7 +48,7 @@ async def show_next_profile(message: types.Message):
             await message.answer("😔 На жаль, більше анкет поки що немає.")
 
 from app.models.swipes import Swipe, SwipeAction
-from app.models.matches import Match
+from app.models.match import Match
 import uuid
 
 # Обробка свайпу

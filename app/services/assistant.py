@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from app.database import get_session
 from app.models.messages import Message
 from app.models.user import User
-from app.models.matches import Match
+from app.models.match import Match
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
