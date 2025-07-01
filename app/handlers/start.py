@@ -1,7 +1,7 @@
 ﻿# файл: app/handlers/start.py
 
 from aiogram import types
-from aiogram.dispatcher import Dispatcher
+from aiogram.dispatcher import Dispatcher, FSMContext
 from app.keyboards.language import get_language_keyboard
 from app.keyboards.main_menu import get_main_menu
 
@@ -18,8 +18,17 @@ async def cmd_start(message: types.Message):
     )
 
 # Встановлення мови
-async def set_language_handler(callback_query: types.CallbackQuery):
+async def set_language_handler(callback_query: types.CallbackQuery, state: FSMContext):
     lang = callback_query.data.replace("lang_", "")
+    
+    # Зберігаємо обрану мову в FSM-даних
+    await state.update_data(lang=lang)
+    
+    # Оновлюємо мову в базі даних
+    from app.services.user_service import update_user_field
+    user_id = callback_query.from_user.id
+    await update_user_field(str(user_id), "language", lang)
+    
     await callback_query.message.delete()
     await callback_query.message.answer(
         "✅ Мову встановлено. Оберіть наступну дію:",
@@ -56,7 +65,7 @@ async def show_impressum(message: types.Message):
 # Зареєструвати всі обробники
 def register_start_handlers(dp: Dispatcher):
     dp.register_message_handler(cmd_start, commands=["start"])
-    dp.register_callback_query_handler(set_language_handler, lambda c: c.data.startswith("lang_"))
+    dp.register_callback_query_handler(set_language_handler, lambda c: c.data.startswith("lang_"), state="*")
     dp.register_message_handler(show_datenschutz, lambda m: "Datenschutz" in m.text)
     dp.register_message_handler(show_agb, lambda m: "AGB" in m.text)
     dp.register_message_handler(show_impressum, lambda m: "Impressum" in m.text)

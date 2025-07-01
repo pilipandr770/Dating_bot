@@ -30,18 +30,14 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     telegram_id = Column(String, unique=True, nullable=False)
-    first_name = Column(String)
-    last_name = Column(String)
-    username = Column(String)
-    age = Column(Integer, nullable=False)
-    gender = Column(Enum(GenderEnum))
-    orientation = Column(Enum(OrientationEnum))
+    first_name = Column(String, nullable=False)
+    age = Column(Integer)
+    gender = Column(String)  # Text field in DB, not enum
+    orientation = Column(String)  # Text field in DB, not enum
     city = Column(String)
-    language = Column(Enum(LanguageEnum))
-    bio = Column(String(300))
+    language = Column(String)  # Text field in DB, not enum
+    bio = Column(String)
     is_verified = Column(Boolean, default=False)
-    consent_ai_training = Column(Boolean, default=False)
-    latitude = Column(Float)
-    longitude = Column(Float)
+    token_balance = Column(Integer, default=0)
+    is_premium = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    is_flagged = Column(Boolean, default=False)  # ⚠️ позначено як підозрілий

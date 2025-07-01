@@ -2,6 +2,7 @@
 
 import asyncio
 from aiogram import Bot, Dispatcher
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from app.config import TELEGRAM_BOT_TOKEN
 from app.database import init_db
 
@@ -12,7 +13,8 @@ from app.handlers.swipes import register_swipe_handlers
 from app.handlers.chat import register_chat_handlers
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-dp = Dispatcher(bot)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
 # Головна асинхронна функція запуску
 async def main():

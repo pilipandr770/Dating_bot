@@ -5,6 +5,8 @@ from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from app.keyboards.registration import gender_keyboard, orientation_keyboard
+from app.keyboards.registration_menu import get_registration_menu
+from app.services.user_service import create_or_get_user, update_user_field, get_user_language, save_user_photos
 
 # Стан машини для анкети
 class Registration(StatesGroup):
@@ -17,6 +19,16 @@ class Registration(StatesGroup):
     photo = State()
     bio = State()
     confirm = State()
+
+# Новий стан для меню анкети
+class RegistrationStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_gender = State()
+    waiting_for_orientation = State()
+    waiting_for_age = State()
+    waiting_for_city = State()
+    waiting_for_photos = State()
+    waiting_for_bio = State()
 
 # Старт анкети (після "🚀 Почати")
 async def start_registration(message: types.Message, state: FSMContext):
@@ -142,17 +154,197 @@ async def on_confirm(message: types.Message, state: FSMContext):
         await state.finish()
 
 
-# ... всі async def вище ...
+# Профіль / анкета
+async def cmd_profile(message: types.Message, state: FSMContext):
+    # Отримуємо мову користувача
+    user_id = message.from_user.id
+    lang = await get_user_language(str(user_id))
+    
+    await message.answer("📝 Розділ «Анкета». Оберіть, що заповнити:", 
+                         reply_markup=get_registration_menu(lang))
+    await state.finish()  # якщо була якась попередня сесія
 
+# Обробники для кожного поля в анкеті
+
+async def process_name_button(message: types.Message, state: FSMContext):
+    await message.answer("✏️ Введіть ваше ім'я:")
+    await RegistrationStates.waiting_for_name.set()
+
+async def process_name(message: types.Message, state: FSMContext):
+    name = message.text.strip()
+    if len(name) < 2:
+        await message.answer("❌ Ім'я повинно містити щонайменше 2 символи. Спробуйте знову:")
+        return
+    
+    await update_user_field(str(message.from_user.id), "first_name", name)
+    await message.answer(f"✅ Ім'я {name} збережено.")
+    await cmd_profile(message, state)  # повернутися в меню анкети
+
+async def process_gender_button(message: types.Message, state: FSMContext):
+    await message.answer("👤 Оберіть вашу стать:", reply_markup=gender_keyboard())
+    await RegistrationStates.waiting_for_gender.set()
+
+async def process_gender(message: types.Message, state: FSMContext):
+    gender = message.text
+    await update_user_field(str(message.from_user.id), "gender", gender)
+    await message.answer(f"✅ Стать {gender} збережено.")
+    await cmd_profile(message, state)
+
+async def process_orientation_button(message: types.Message, state: FSMContext):
+    await message.answer("🏳️ Оберіть вашу орієнтацію:", reply_markup=orientation_keyboard())
+    await RegistrationStates.waiting_for_orientation.set()
+
+async def process_orientation(message: types.Message, state: FSMContext):
+    orientation = message.text
+    await update_user_field(str(message.from_user.id), "orientation", orientation)
+    await message.answer(f"✅ Орієнтацію {orientation} збережено.")
+    await cmd_profile(message, state)
+
+async def process_age_button(message: types.Message, state: FSMContext):
+    await message.answer("🎂 Введіть ваш вік (лише число, наприклад: 25):")
+    await RegistrationStates.waiting_for_age.set()
+
+async def process_age(message: types.Message, state: FSMContext):
+    try:
+        age = int(message.text.strip())
+        if age < 18 or age > 100:
+            await message.answer("❌ Вік повинен бути від 18 до 100 років. Спробуйте знову:")
+            return
+            
+        await update_user_field(str(message.from_user.id), "age", age)
+        await message.answer(f"✅ Вік {age} збережено.")
+        await cmd_profile(message, state)
+    except ValueError:
+        await message.answer("❌ Будь ласка, введіть дійсний вік (лише число):")
+
+async def process_city_button(message: types.Message, state: FSMContext):
+    await message.answer("📍 Введіть ваше місто:")
+    await RegistrationStates.waiting_for_city.set()
+
+async def process_city(message: types.Message, state: FSMContext):
+    city = message.text.strip()
+    if len(city) < 2:
+        await message.answer("❌ Назва міста повинна містити щонайменше 2 символи. Спробуйте знову:")
+        return
+        
+    await update_user_field(str(message.from_user.id), "city", city)
+    await message.answer(f"✅ Місто {city} збережено.")
+    await cmd_profile(message, state)
+
+async def process_photos_button(message: types.Message, state: FSMContext):
+    await message.answer(
+        "📷 Надішліть ваше фото (до 5 фото).\n"
+        "Після завершення надішліть текст 'Готово'"
+    )
+    await state.update_data(photos=[])
+    await RegistrationStates.waiting_for_photos.set()
+
+async def process_photos(message: types.Message, state: FSMContext):
+    if message.text and message.text.lower() == "готово":
+        data = await state.get_data()
+        photos = data.get("photos", [])
+        
+        if not photos:
+            await message.answer("❌ Ви не додали жодного фото. Спробуйте знову або натисніть 'Готово':")
+            return
+            
+        # Зберігаємо фото в базу даних
+        telegram_id = str(message.from_user.id)
+        success = await save_user_photos(telegram_id, photos)
+        
+        if success:
+            await message.answer(f"✅ Збережено {len(photos)} фото.")
+        else:
+            await message.answer("❌ Виникла проблема при збереженні фото. Спробуйте пізніше.")
+        
+        await cmd_profile(message, state)
+    elif message.photo:
+        data = await state.get_data()
+        photos = data.get("photos", [])
+        
+        if len(photos) >= 5:
+            await message.answer("❌ Ви вже додали максимальну кількість фото (5). Натисніть 'Готово':")
+            return
+            
+        file_id = message.photo[-1].file_id
+        photos.append(file_id)
+        
+        await state.update_data(photos=photos)
+        await message.answer(f"✅ Фото {len(photos)}/5 додано. Додайте ще або напишіть 'Готово'")
+    else:
+        await message.answer("❌ Будь ласка, надішліть фото або напишіть 'Готово':")
+
+async def process_bio_button(message: types.Message, state: FSMContext):
+    await message.answer(
+        "📝 Розкажіть про себе (до 300 символів).\n"
+        "Це допоможе іншим користувачам краще вас зрозуміти."
+    )
+    await RegistrationStates.waiting_for_bio.set()
+
+async def process_bio(message: types.Message, state: FSMContext):
+    bio = message.text.strip()
+    if len(bio) > 300:
+        await message.answer("❌ Біо занадто довге (максимум 300 символів). Спробуйте знову:")
+        return
+        
+    await update_user_field(str(message.from_user.id), "bio", bio)
+    await message.answer(f"✅ Біо збережено.")
+    await cmd_profile(message, state)
+
+async def process_done_button(message: types.Message, state: FSMContext):
+    await message.answer("✅ Анкета заповнена! Тепер ви можете починати знайомства.")
+    # Тут можна додати перехід до головного меню або до свайпів
+    # await cmd_start_swipes(message, state)
+
+# Розширена реєстрація обробників
 def register_registration_handlers(dp: Dispatcher):
-    dp.register_message_handler(start_registration, lambda m: "Почати" in m.text, state="*")
+    # Старі обробники для процесу реєстрації
+    dp.register_message_handler(start_registration, lambda m: "Почати" in m.text or "Начать" in m.text or "Start" in m.text or "Starten" in m.text, state="*")
     dp.register_message_handler(on_name, state=Registration.name)
     dp.register_message_handler(on_gender, state=Registration.gender)
     dp.register_message_handler(on_orientation, state=Registration.orientation)
     dp.register_message_handler(on_age, state=Registration.age)
     dp.register_message_handler(on_city, state=Registration.city)
     dp.register_message_handler(on_photo, content_types=types.ContentType.PHOTO, state=Registration.photo)
+    
+    # Обробник для кнопки "Анкета" в головному меню
+    dp.register_message_handler(cmd_profile, lambda m: "Анкета" in m.text or "Profile" in m.text or "Profil" in m.text)
+    
+    # Кнопки меню анкети
+    dp.register_message_handler(process_name_button, lambda m: "Ввести ім'я" in m.text or "Ввести имя" in m.text or "Enter name" in m.text or "Name eingeben" in m.text)
+    dp.register_message_handler(process_gender_button, lambda m: "Стать" in m.text or "Пол" in m.text or "Gender" in m.text or "Geschlecht" in m.text)
+    dp.register_message_handler(process_orientation_button, lambda m: "Ориєнтація" in m.text or "Ориентация" in m.text or "Orientation" in m.text or "Orientierung" in m.text)
+    dp.register_message_handler(process_age_button, lambda m: "Вік" in m.text or "Возраст" in m.text or "Age" in m.text or "Alter" in m.text)
+    dp.register_message_handler(process_city_button, lambda m: "Місто" in m.text or "Город" in m.text or "City" in m.text or "Stadt" in m.text)
+    dp.register_message_handler(process_photos_button, lambda m: "Фото" in m.text or "Photos" in m.text or "Fotos" in m.text)
+    dp.register_message_handler(process_bio_button, lambda m: "Біо" in m.text or "Био" in m.text or "Bio" in m.text)
+    dp.register_message_handler(process_done_button, lambda m: "Готово" in m.text or "Done" in m.text or "Fertig" in m.text)
+    
+    # Обробники станів анкети
+    dp.register_message_handler(process_name, state=RegistrationStates.waiting_for_name)
+    dp.register_message_handler(process_gender, state=RegistrationStates.waiting_for_gender)
+    dp.register_message_handler(process_orientation, state=RegistrationStates.waiting_for_orientation)
+    dp.register_message_handler(process_age, state=RegistrationStates.waiting_for_age)
+    dp.register_message_handler(process_city, state=RegistrationStates.waiting_for_city)
+    dp.register_message_handler(process_photos, state=RegistrationStates.waiting_for_photos, content_types=['photo', 'text'])
+    dp.register_message_handler(process_bio, state=RegistrationStates.waiting_for_bio)
     dp.register_message_handler(finish_photos, commands="done", state=Registration.photo)
     dp.register_message_handler(on_bio, state=Registration.bio)
     dp.register_message_handler(on_confirm, state=Registration.confirm)
+    dp.register_message_handler(cmd_profile, commands="profile", state="*")
+    dp.register_message_handler(process_name_button, lambda m: "ім'я" in m.text.lower(), state="*")
+    dp.register_message_handler(process_name, state=RegistrationStates.waiting_for_name)
+    dp.register_message_handler(process_gender_button, lambda m: "стать" in m.text.lower(), state="*")
+    dp.register_message_handler(process_gender, state=RegistrationStates.waiting_for_gender)
+    dp.register_message_handler(process_orientation_button, lambda m: "орієнтацію" in m.text.lower(), state="*")
+    dp.register_message_handler(process_orientation, state=RegistrationStates.waiting_for_orientation)
+    dp.register_message_handler(process_age_button, lambda m: "вік" in m.text.lower(), state="*")
+    dp.register_message_handler(process_age, state=RegistrationStates.waiting_for_age)
+    dp.register_message_handler(process_city_button, lambda m: "місто" in m.text.lower(), state="*")
+    dp.register_message_handler(process_city, state=RegistrationStates.waiting_for_city)
+    dp.register_message_handler(process_photos_button, lambda m: "фото" in m.text.lower(), state="*")
+    dp.register_message_handler(process_photos, content_types=types.ContentType.PHOTO, state=RegistrationStates.waiting_for_photos)
+    dp.register_message_handler(process_bio_button, lambda m: "біо" in m.text.lower(), state="*")
+    dp.register_message_handler(process_bio, state=RegistrationStates.waiting_for_bio)
+    dp.register_message_handler(process_done_button, lambda m: "готово" in m.text.lower(), state="*")
 

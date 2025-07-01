@@ -52,6 +52,23 @@ async def init_db():
             print("✅ Створено всі таблиці.")
         else:
             print("✅ Таблиці вже існують.")
+            
+        # Перевіряємо наявність колонки language у таблиці users
+        try:
+            # Перевіряємо, чи є колонка language
+            result = await conn.execute(
+                text(f"SELECT column_name FROM information_schema.columns WHERE table_schema = :schema AND table_name = 'users' AND column_name = 'language'"),
+                {"schema": DB_SCHEMA}
+            )
+            column_exists = result.scalar() is not None
+            
+            # Якщо колонки немає - додаємо її
+            if not column_exists:
+                print("📦 Додаємо колонку language до таблиці users...")
+                await conn.execute(text(f"ALTER TABLE {DB_SCHEMA}.users ADD COLUMN language TEXT"))
+                print("✅ Колонку language додано.")
+        except Exception as e:
+            print(f"Помилка при перевірці колонки language: {e}")
 
 
 # Генератор сесій
