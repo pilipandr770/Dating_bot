@@ -203,3 +203,26 @@ async def save_user_photos(telegram_id: str, photo_file_ids: list) -> bool:
             await session.rollback()
             print(f"❌ Ошибка при сохранении фотографий: {e}")
             return False
+
+async def get_user_photos(user_id: int):
+    """
+    Получает список file_id фотографий пользователя по его ID
+    """
+    photo_file_ids = []
+    async for session in get_session():
+        try:
+            # Используем более простой запрос без сортировки по uploaded_at
+            sql = """
+            SELECT file_id FROM dating_bot.user_photos 
+            WHERE user_id = :user_id
+            """
+            result = await session.execute(text(sql), {"user_id": user_id})
+            rows = result.fetchall()
+            
+            for row in rows:
+                photo_file_ids.append(row[0])
+                
+            return photo_file_ids
+        except Exception as e:
+            print(f"❌ Ошибка при получении фотографий пользователя: {e}")
+            return []

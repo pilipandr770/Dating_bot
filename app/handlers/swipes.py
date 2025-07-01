@@ -51,12 +51,46 @@ async def show_next_profile(message: types.Message):
                 InlineKeyboardButton("❌", callback_data=f"dislike_{candidate.id}")
             )
 
-            # Вивід анкети
-            await message.answer(
-                f"{flag_note}👤 {candidate.first_name}, {candidate.age}\n"
-                f"🏙 {candidate.city}\n📝 {candidate.bio or '—'}",
-                reply_markup=kb
-            )
+            # Отримуємо фотографії кандидата
+            from app.services.user_service import get_user_photos
+            photo_file_ids = await get_user_photos(candidate.id)
+            
+            # Логируем для отладки
+            print(f"📸 Для профиля ID={candidate.id} ({candidate.first_name}) найдено {len(photo_file_ids) if photo_file_ids else 0} фотографий")
+            
+            # Створюємо текст анкети
+            profile_text = f"{flag_note}👤 {candidate.first_name}, {candidate.age}\n" \
+                          f"🏙 {candidate.city}\n📝 {candidate.bio or '—'}"
+            
+            # Якщо є фото - відправляємо медіа групою
+            if photo_file_ids and len(photo_file_ids) > 0:
+                # Якщо є тільки одне фото - відправляємо його з підписом і клавіатурою
+                if len(photo_file_ids) == 1:
+                    await message.answer_photo(
+                        photo=photo_file_ids[0],
+                        caption=profile_text,
+                        reply_markup=kb
+                    )
+                else:
+                    # Якщо багато фото - відправляємо медіа групою
+                    media_group = []
+                    for i, file_id in enumerate(photo_file_ids):
+                        # До першого фото додаємо підпис з даними анкети
+                        if i == 0:
+                            media_group.append(types.InputMediaPhoto(
+                                media=file_id,
+                                caption=profile_text
+                            ))
+                        else:
+                            media_group.append(types.InputMediaPhoto(media=file_id))
+                            
+                    # Відправляємо медіа групу
+                    await message.answer_media_group(media_group)
+                    # Відправляємо клавіатуру окремим повідомленням
+                    await message.answer("Оцініть цю анкету:", reply_markup=kb)
+            else:
+                # Якщо немає фото - просто відправляємо текст
+                await message.answer(profile_text, reply_markup=kb)
         else:
             await message.answer("😔 На жаль, більше анкет поки що немає.")
 

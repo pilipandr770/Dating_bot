@@ -7,7 +7,10 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemo
 from app.keyboards.registration import gender_keyboard, orientation_keyboard
 from app.keyboards.registration_menu import get_registration_menu
 from app.keyboards.main_menu import get_main_menu
-from app.services.user_service import create_or_get_user, update_user_field, get_user_language, save_user_photos
+from app.services.user_service import create_or_get_user, update_user_field, get_user_language, save_user_photos, get_user_photos
+from sqlalchemy import select
+from app.models.user import User
+from app.database import get_session
 
 # Стан машини для анкети
 class Registration(StatesGroup):
@@ -233,7 +236,44 @@ async def cmd_profile(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(str(user_id))
     
-    # Сначала удаляем текущую клавиатуру
+    # Сначала показываем текущую анкету, если есть данные
+    async for session in get_session():
+        user = await session.scalar(select(User).where(User.telegram_id == str(user_id)))
+        if user:
+            # Отображаем информацию о пользователе
+            profile_text = f"👤 {user.first_name}, {user.age or '?'}\n"
+            if user.gender:
+                profile_text += f"🧬 {user.gender}\n"
+            if user.orientation:
+                profile_text += f"💘 {user.orientation}\n"
+            if user.city:
+                profile_text += f"🏙 {user.city}\n"
+            if user.bio:
+                profile_text += f"📝 {user.bio}\n"
+                
+            # Получаем и отображаем фотографии
+            photo_file_ids = await get_user_photos(user.id)
+            
+            if photo_file_ids and len(photo_file_ids) > 0:
+                # Отправляем первое фото с подписью
+                await message.answer_photo(
+                    photo=photo_file_ids[0],
+                    caption=f"📸 Ваш текущий профиль:\n\n{profile_text}"
+                )
+                
+                # Если есть еще фото - отправляем их
+                if len(photo_file_ids) > 1:
+                    media_group = []
+                    for file_id in photo_file_ids[1:]:
+                        media_group.append(types.InputMediaPhoto(media=file_id))
+                    
+                    if media_group:
+                        await message.answer_media_group(media_group)
+            else:
+                # Если нет фото - просто текст
+                await message.answer(f"📸 Ваш текущий профиль:\n\n{profile_text}")
+    
+    # Удаляем клавиатуру
     await message.answer("📝 Открываем редактор анкеты...", reply_markup=ReplyKeyboardRemove())
     
     # Получаем клавиатуру редактирования анкеты
