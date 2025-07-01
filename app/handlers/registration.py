@@ -3,9 +3,10 @@
 from aiogram import types
 from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from app.keyboards.registration import gender_keyboard, orientation_keyboard
 from app.keyboards.registration_menu import get_registration_menu
+from app.keyboards.main_menu import get_main_menu
 from app.services.user_service import create_or_get_user, update_user_field, get_user_language, save_user_photos
 
 # Стан машини для анкети
@@ -143,14 +144,86 @@ async def on_confirm(message: types.Message, state: FSMContext):
         telegram_id = str(message.from_user.id)
 
         try:
-            await create_user_from_registration(data, telegram_id)
-            await message.answer("✅ Твоя анкета збережена! Тепер можна знайомитися ❤️")
+            # Создаем пользователя, если еще не существует
+            user = await create_or_get_user(telegram_id)
+            
+            # Сохраняем анкету
+            user_id = await create_user_from_registration(data, telegram_id)
+            
+            if not user_id:
+                await message.answer("❌ Ошибка при сохранении анкеты. Попробуйте еще раз.")
+                await state.finish()
+                return
+            
+            # Получаем язык пользователя сначала из данных состояния, затем из базы если в состоянии нет
+            lang = data.get("language") or await get_user_language(telegram_id) or "ua"
+            
+            # Тексты для разных языков
+            texts = {
+                "ua": {
+                    "success": "✅ Твоя анкета збережена! Тепер можна знайомитися ❤️",
+                    "hint": "👇 Натисніть кнопку \"Знайомитись\" для пошуку нових профілів"
+                },
+                "ru": {
+                    "success": "✅ Твоя анкета сохранена! Теперь можно знакомиться ❤️",
+                    "hint": "👇 Нажмите кнопку \"Знакомиться\" для поиска новых профилей"
+                },
+                "en": {
+                    "success": "✅ Your profile has been saved! Now you can start meeting people ❤️",
+                    "hint": "👇 Press the \"Meet people\" button to find new profiles"
+                },
+                "de": {
+                    "success": "✅ Dein Profil wurde gespeichert! Jetzt kannst du Leute kennenlernen ❤️",
+                    "hint": "👇 Drücke den \"Leute kennenlernen\" Button, um neue Profile zu finden"
+                }
+            }
+            
+            t = texts.get(lang, texts["en"])
+            
+            # Создаем клавиатуру явным образом
+            main_menu = get_main_menu(lang)
+            
+            # Радикальный способ: отправляем пользователю команду для отображения главного меню
+            # Сначала удаляем клавиатуру
+            await message.answer("⌛ Сохраняем анкету...", reply_markup=ReplyKeyboardRemove())
+            
+            # Затем отправляем новое сообщение с главным меню
+            await message.answer(
+                f"{t['success']}\n\n{t['hint']}",
+                reply_markup=main_menu
+            )
+            
+            # Завершаем состояние
+            await state.finish()
         except Exception as e:
             await message.answer(f"❌ Виникла помилка при збереженні анкети: {e}")
-        finally:
             await state.finish()
     else:
-        await message.answer("❌ Анкету скасовано.")
+        # Получаем данные из состояния
+        data = await state.get_data()
+        telegram_id = str(message.from_user.id)
+        
+        # Получаем язык пользователя сначала из данных состояния, затем из базы если в состоянии нет
+        lang = data.get("language") or await get_user_language(telegram_id) or "ua"
+        
+        # Тексты для разных языков
+        cancel_texts = {
+            "ua": "❌ Анкету скасовано.",
+            "ru": "❌ Анкета отменена.",
+            "en": "❌ Profile creation canceled.",
+            "de": "❌ Profilerstellung abgebrochen."
+        }
+        
+        text = cancel_texts.get(lang, cancel_texts["en"])
+        
+        # Сначала удаляем текущую клавиатуру
+        await message.answer("⌛ Отменяем...", reply_markup=ReplyKeyboardRemove())
+        
+        # Создаем главное меню явно
+        main_menu = get_main_menu(lang)
+        
+        # Затем показываем сообщение с новой клавиатурой
+        await message.answer(text, reply_markup=main_menu)
         await state.finish()
 
 
@@ -160,8 +233,15 @@ async def cmd_profile(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     lang = await get_user_language(str(user_id))
     
+    # Сначала удаляем текущую клавиатуру
+    await message.answer("📝 Открываем редактор анкеты...", reply_markup=ReplyKeyboardRemove())
+    
+    # Получаем клавиатуру редактирования анкеты
+    reg_menu = get_registration_menu(lang)
+    
+    # Показываем новое меню
     await message.answer("📝 Розділ «Анкета». Оберіть, що заповнити:", 
-                         reply_markup=get_registration_menu(lang))
+                         reply_markup=reg_menu)
     await state.finish()  # якщо була якась попередня сесія
 
 # Обробники для кожного поля в анкеті
@@ -248,8 +328,11 @@ async def process_photos(message: types.Message, state: FSMContext):
             await message.answer("❌ Ви не додали жодного фото. Спробуйте знову або натисніть 'Готово':")
             return
             
-        # Зберігаємо фото в базу даних
+        # Сначала создаем пользователя, если его еще нет
         telegram_id = str(message.from_user.id)
+        user = await create_or_get_user(telegram_id)
+        
+        # Затем сохраняем фото
         success = await save_user_photos(telegram_id, photos)
         
         if success:
@@ -292,9 +375,24 @@ async def process_bio(message: types.Message, state: FSMContext):
     await cmd_profile(message, state)
 
 async def process_done_button(message: types.Message, state: FSMContext):
-    await message.answer("✅ Анкета заповнена! Тепер ви можете починати знайомства.")
-    # Тут можна додати перехід до головного меню або до свайпів
-    # await cmd_start_swipes(message, state)
+    # Получаем данные из состояния
+    telegram_id = str(message.from_user.id)
+    lang = await get_user_language(telegram_id) or "ua"
+    
+    # Сначала удаляем текущую клавиатуру
+    await message.answer("⌛ Завершаем настройку профиля...", reply_markup=ReplyKeyboardRemove())
+    
+    # Создаем главное меню
+    main_menu = get_main_menu(lang)
+    
+    # Показываем сообщение с новой клавиатурой
+    await message.answer(
+        "✅ Анкета заповнена! Тепер ви можете починати знайомства.",
+        reply_markup=main_menu
+    )
+    
+    # Завершаем состояние
+    await state.finish()
 
 # Розширена реєстрація обробників
 def register_registration_handlers(dp: Dispatcher):

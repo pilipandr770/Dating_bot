@@ -7,6 +7,9 @@ from sqlalchemy import text
 from dotenv import load_dotenv
 import asyncio
 
+# Import all models to ensure they're registered with SQLAlchemy's metadata
+from app.models import Base, User, UserPhoto, Swipe, Match, Report, Message
+
 load_dotenv()
 
 POSTGRES_URL = os.getenv("POSTGRES_URL")
@@ -69,6 +72,15 @@ async def init_db():
                 print("✅ Колонку language додано.")
         except Exception as e:
             print(f"Помилка при перевірці колонки language: {e}")
+            
+        try:
+            # Create tables from models if needed
+            print("📦 Оновлюємо структуру моделей через SQLAlchemy...")
+            # Create tables defined in models but don't replace existing ones
+            await conn.run_sync(Base.metadata.create_all)
+            print("✅ Моделі оновлено через SQLAlchemy.")
+        except Exception as e:
+            print(f"❌ Помилка при створенні таблиць через SQLAlchemy: {e}")
 
 
 # Генератор сесій

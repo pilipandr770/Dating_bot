@@ -46,7 +46,11 @@ def get_registration_menu(lang: str):
         }
     }
     t = texts.get(lang, texts["ua"])
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb = ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Выберите поле для редактирования"
+    )
     kb.add(KeyboardButton(t["name"]), KeyboardButton(t["gender"]))
     kb.add(KeyboardButton(t["orientation"]), KeyboardButton(t["age"]))
     kb.add(KeyboardButton(t["city"]), KeyboardButton(t["photos"]))

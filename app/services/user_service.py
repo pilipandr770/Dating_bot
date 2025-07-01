@@ -9,15 +9,31 @@ import asyncio
 async def create_user_from_registration(data: dict, telegram_id: str):
     async for session in get_session():
         try:
-            # Використовуємо raw SQL замість ORM, щоб уникнути проблем з колонками
-            # Вставляємо тільки ті поля, які точно існують у таблиці
-            sql = """
-            INSERT INTO dating_bot.users 
-            (telegram_id, first_name, age, gender, orientation, city, language, bio, is_verified)
-            VALUES (:telegram_id, :first_name, :age, :gender, :orientation, :city, :language, :bio, :is_verified)
-            RETURNING id
-            """
+            # Проверяем, существует ли пользователь
+            check_sql = "SELECT id FROM dating_bot.users WHERE telegram_id = :telegram_id"
+            result = await session.execute(text(check_sql), {"telegram_id": telegram_id})
+            existing_user_id = result.scalar()
             
+            if existing_user_id:
+                # Если пользователь существует, обновляем его данные
+                update_sql = """
+                UPDATE dating_bot.users 
+                SET first_name = :first_name, age = :age, gender = :gender, 
+                    orientation = :orientation, city = :city, 
+                    bio = :bio, is_verified = :is_verified
+                WHERE telegram_id = :telegram_id
+                RETURNING id
+                """
+            else:
+                # Если пользователя нет, создаем нового
+                update_sql = """
+                INSERT INTO dating_bot.users 
+                (telegram_id, first_name, age, gender, orientation, city, language, bio, is_verified)
+                VALUES (:telegram_id, :first_name, :age, :gender, :orientation, :city, :language, :bio, :is_verified)
+                RETURNING id
+                """
+            
+            # Общие параметры для обоих запросов
             params = {
                 "telegram_id": telegram_id,
                 "first_name": data.get("name", "Anonymous"),
@@ -30,7 +46,8 @@ async def create_user_from_registration(data: dict, telegram_id: str):
                 "is_verified": False
             }
             
-            result = await session.execute(text(sql), params)
+            # Выполняем запрос (INSERT или UPDATE)
+            result = await session.execute(text(update_sql), params)
             user_id = result.scalar()
             
             # Зберігаємо фото
@@ -150,38 +167,39 @@ async def get_user_language(telegram_id: str) -> str:
             print(f"❌ Помилка при отриманні мови користувача: {e}")
             return "ua"  # За замовчуванням українська
 
-async def save_user_photos(telegram_id: str, file_ids: list) -> bool:
+async def save_user_photos(telegram_id: str, photo_file_ids: list) -> bool:
     """
-    Зберігає фото користувача в базу даних
+    Сохраняет фотографии пользователя в базу данных
     """
+    if not photo_file_ids:
+        return True  # Нет фото для сохранения
+        
     async for session in get_session():
         try:
-            # Спочатку отримуємо ID користувача
-            result = await session.execute(
-                select(User.id).filter(User.telegram_id == telegram_id)
-            )
+            # Находим пользователя
+            sql = "SELECT id FROM dating_bot.users WHERE telegram_id = :telegram_id"
+            result = await session.execute(text(sql), {"telegram_id": telegram_id})
             user_id = result.scalar()
             
             if not user_id:
-                print(f"❌ Користувача з telegram_id={telegram_id} не знайдено")
+                print(f"❌ Пользователь с telegram_id {telegram_id} не найден")
                 return False
+                
+            # Удаляем старые фотографии
+            delete_sql = "DELETE FROM dating_bot.user_photos WHERE user_id = :user_id"
+            await session.execute(text(delete_sql), {"user_id": user_id})
             
-            # Видаляємо старі фотографії користувача (якщо є)
-            await session.execute(
-                text("DELETE FROM dating_bot.user_photos WHERE user_id = :user_id"),
-                {"user_id": user_id}
-            )
-            
-            # Додаємо нові фотографії
-            for file_id in file_ids:
-                user_photo = UserPhoto(user_id=user_id, file_id=file_id)
-                session.add(user_photo)
-            
+            # Добавляем новые фотографии
+            for file_id in photo_file_ids[:5]:  # Максимум 5 фото
+                insert_sql = """
+                INSERT INTO dating_bot.user_photos (user_id, file_id)
+                VALUES (:user_id, :file_id)
+                """
+                await session.execute(text(insert_sql), {"user_id": user_id, "file_id": file_id})
+                
             await session.commit()
             return True
         except Exception as e:
             await session.rollback()
-            print(f"❌ Помилка при збереженні фото: {e}")
+            print(f"❌ Ошибка при сохранении фотографий: {e}")
             return False
-    
-    return False

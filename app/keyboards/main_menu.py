@@ -7,6 +7,8 @@ def get_main_menu(lang: str):
         "ua": {
             "start": "🚀 Почати",
             "profile": "📝 Анкета",
+            "swipes": "👥 Знайомитись",
+            "matches": "❤️ Мої матчі",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -14,6 +16,8 @@ def get_main_menu(lang: str):
         "ru": {
             "start": "🚀 Начать",
             "profile": "📝 Анкета",
+            "swipes": "👥 Знакомиться",
+            "matches": "❤️ Мои матчи",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -21,6 +25,8 @@ def get_main_menu(lang: str):
         "en": {
             "start": "🚀 Start",
             "profile": "📝 Profile",
+            "swipes": "👥 Meet people",
+            "matches": "❤️ My matches",
             "privacy": "🛡 Privacy Policy",
             "agb": "📜 Terms of Use",
             "impressum": "ℹ️ Imprint"
@@ -28,6 +34,8 @@ def get_main_menu(lang: str):
         "de": {
             "start": "🚀 Starten",
             "profile": "📝 Profil",
+            "swipes": "👥 Leute kennenlernen",
+            "matches": "❤️ Meine Matches",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -36,7 +44,16 @@ def get_main_menu(lang: str):
 
     t = texts.get(lang, texts["en"])
 
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row(KeyboardButton(t["start"]), KeyboardButton(t["profile"]))
+    # Настраиваем параметры клавиатуры:
+    # resize_keyboard=True - компактная клавиатура
+    # one_time_keyboard=False - клавиатура остается видимой после нажатия
+    # is_persistent=True - сохраняет клавиатуру между перезапусками
+    kb = ReplyKeyboardMarkup(
+        resize_keyboard=True, 
+        one_time_keyboard=False,
+        input_field_placeholder="Виберіть дію"
+    )
+    kb.row(KeyboardButton(t["swipes"]), KeyboardButton(t["matches"]))
+    kb.row(KeyboardButton(t["profile"]))
     kb.row(KeyboardButton(t["privacy"]), KeyboardButton(t["agb"]), KeyboardButton(t["impressum"]))
     return kb

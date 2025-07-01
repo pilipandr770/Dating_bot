@@ -2,10 +2,12 @@
 
 from sqlalchemy import Column, Integer, String, Boolean, Enum, Float, DateTime
 from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.ext.declarative import declared_attr
 import enum
 
-Base = declarative_base()
+# Import the shared Base
+from app.models.base import Base
 
 class GenderEnum(str, enum.Enum):
     male = "чоловік"
@@ -26,7 +28,10 @@ class LanguageEnum(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = {'schema': 'dating_bot'}
+    
+    @declared_attr
+    def __table_args__(cls):
+        return {'schema': 'dating_bot'}
 
     id = Column(Integer, primary_key=True)
     telegram_id = Column(String, unique=True, nullable=False)

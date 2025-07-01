@@ -22,12 +22,18 @@ async def set_language_handler(callback_query: types.CallbackQuery, state: FSMCo
     lang = callback_query.data.replace("lang_", "")
     
     # Зберігаємо обрану мову в FSM-даних
-    await state.update_data(lang=lang)
+    await state.update_data(language=lang)  # Изменено с lang на language, чтобы совпадало с полем в БД
     
-    # Оновлюємо мову в базі даних
-    from app.services.user_service import update_user_field
+    # Создаем или получаем пользователя в базе данных
+    from app.services.user_service import create_or_get_user, update_user_field
     user_id = callback_query.from_user.id
-    await update_user_field(str(user_id), "language", lang)
+    telegram_id = str(user_id)
+    
+    # Сначала создаем или получаем пользователя
+    user = await create_or_get_user(telegram_id)
+    
+    # Затем обновляем язык
+    await update_user_field(telegram_id, "language", lang)
     
     await callback_query.message.delete()
     await callback_query.message.answer(

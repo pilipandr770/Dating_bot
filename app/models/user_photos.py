@@ -2,13 +2,18 @@
 
 from sqlalchemy import Column, Integer, ForeignKey, String, DateTime
 from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.ext.declarative import declared_attr
 
-Base = declarative_base()
+# Import the shared Base
+from app.models.base import Base
 
 class UserPhoto(Base):
     __tablename__ = "user_photos"
-    __table_args__ = {'schema': 'dating_bot'}
+    
+    @declared_attr
+    def __table_args__(cls):
+        return {'schema': 'dating_bot'}
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("dating_bot.users.id"))

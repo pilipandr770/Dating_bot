@@ -1,22 +1,22 @@
 # файл: app/models/swipes.py
 
-from sqlalchemy import Column, Integer, ForeignKey, Enum, DateTime
+from sqlalchemy import Column, Integer, ForeignKey, Boolean, DateTime
 from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
-import enum
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.ext.declarative import declared_attr
 
-Base = declarative_base()
-
-class SwipeAction(str, enum.Enum):
-    like = "like"
-    dislike = "dislike"
+# Import a shared Base to avoid multiple base classes
+from app.models.base import Base
 
 class Swipe(Base):
     __tablename__ = "swipes"
-    __table_args__ = {'schema': 'dating_bot'}
+    
+    @declared_attr
+    def __table_args__(cls):
+        return {'schema': 'dating_bot'}
 
     id = Column(Integer, primary_key=True)
-    swiper_id = Column(Integer, ForeignKey("dating_bot.users.id"))
-    swiped_id = Column(Integer, ForeignKey("dating_bot.users.id"))
-    action = Column(Enum(SwipeAction), nullable=False)
+    swiper_id = Column(Integer, ForeignKey("dating_bot.users.id", ondelete="CASCADE"))
+    swiped_id = Column(Integer, ForeignKey("dating_bot.users.id", ondelete="CASCADE"))
+    is_like = Column(Boolean, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
