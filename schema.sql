@@ -1,4 +1,3 @@
-
 -- файл: schema.sql
 -- Схема: dating_bot
 
@@ -129,4 +128,14 @@ CREATE TABLE IF NOT EXISTS dating_bot.reports (
     reported_id INTEGER REFERENCES dating_bot.users(id) ON DELETE CASCADE,
     reason TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Заблоковані користувачі
+CREATE TABLE IF NOT EXISTS dating_bot.blocked_users (
+    id SERIAL PRIMARY KEY,
+    blocker_id INTEGER REFERENCES dating_bot.users(id) ON DELETE CASCADE,
+    blocked_id INTEGER REFERENCES dating_bot.users(id) ON DELETE CASCADE,
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_blocker_blocked UNIQUE (blocker_id, blocked_id)
 );

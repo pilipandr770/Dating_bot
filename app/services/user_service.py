@@ -209,6 +209,8 @@ async def get_user_photos(user_id: int):
     Получает список file_id фотографий пользователя по его ID
     """
     photo_file_ids = []
+    print(f"📸 Запрос фотографий для пользователя с ID {user_id}")
+    
     async for session in get_session():
         try:
             # Используем более простой запрос без сортировки по uploaded_at
@@ -221,7 +223,8 @@ async def get_user_photos(user_id: int):
             
             for row in rows:
                 photo_file_ids.append(row[0])
-                
+            
+            print(f"📸 Найдено {len(photo_file_ids)} фотографий для пользователя с ID {user_id}: {photo_file_ids}")
             return photo_file_ids
         except Exception as e:
             print(f"❌ Ошибка при получении фотографий пользователя: {e}")

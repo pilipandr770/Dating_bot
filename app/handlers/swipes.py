@@ -1,21 +1,26 @@
 ﻿from aiogram import types, Dispatcher
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MediaGroup
 from sqlalchemy import select, not_, exists
 from app.database import get_session
 from app.models.user import User
 from app.models.swipes import Swipe
 from app.models.reports import Report
-from app.services.user_service import get_user_language
+from app.services.user_service import get_user_language, get_user_photos
 from app.keyboards.main_menu import get_main_menu
+import logging
 
-# Функция для начала свайпов
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Функція для початку свайпів
 async def cmd_start_swipes(message: types.Message):
-    # Получаем язык пользователя для клавиатуры
+    # Отримуємо мову користувача для клавіатури
     user_id = message.from_user.id
     lang = await get_user_language(str(user_id))
     
-    # Показываем первый профиль без лишних сообщений, 
-    # т.к. главное меню уже показано после сохранения анкеты
+    # Показуємо перший профіль без зайвих повідомлень, 
+    # адже головне меню вже показано після збереження анкети
     await show_next_profile(message)
 
 async def show_next_profile(message: types.Message):
@@ -27,13 +32,28 @@ async def show_next_profile(message: types.Message):
         if not me:
             return await message.answer("⚠️ Твоя анкета ще не створена. Спочатку зареєструйся.")
 
-        # Пошук користувача, якого ще не свайпнули
+        # Import BlockedUser model
+        from app.models.blocked_users import BlockedUser
+        
+        # Пошук користувача, якого ще не свайпнули та не заблоковано
         stmt = (
             select(User)
             .where(User.id != me.id)
             .where(
                 not_(
                     exists().where(Swipe.swiper_id == me.id).where(Swipe.swiped_id == User.id)
+                )
+            )
+            # Исключаем пользователей, которые заблокировали текущего пользователя
+            .where(
+                not_(
+                    exists().where(BlockedUser.blocker_id == User.id).where(BlockedUser.blocked_id == me.id)
+                )
+            )
+            # Исключаем пользователей, которых заблокировал текущий пользователь
+            .where(
+                not_(
+                    exists().where(BlockedUser.blocker_id == me.id).where(BlockedUser.blocked_id == User.id)
                 )
             )
             .limit(1)
@@ -45,10 +65,11 @@ async def show_next_profile(message: types.Message):
             flag_note = ""
 
             # Побудова клавіатури свайпу
-            kb = InlineKeyboardMarkup(row_width=2)
+            kb = InlineKeyboardMarkup(row_width=3)  # Changed row_width to accommodate the new button
             kb.add(
                 InlineKeyboardButton("❤️", callback_data=f"like_{candidate.id}"),
-                InlineKeyboardButton("❌", callback_data=f"dislike_{candidate.id}")
+                InlineKeyboardButton("❌", callback_data=f"dislike_{candidate.id}"),
+                InlineKeyboardButton("🚫", callback_data=f"block_{candidate.id}")  # Added block button
             )
 
             # Отримуємо фотографії кандидата
@@ -185,9 +206,43 @@ async def handle_report(callback_query: types.CallbackQuery):
         except:
             await callback_query.message.answer("❌ Не вдалося надіслати скаргу адміну.")
 
+async def handle_block(callback_query: types.CallbackQuery):
+    data = callback_query.data
+    telegram_id = str(callback_query.from_user.id)
+
+    if not data.startswith("block_"):
+        return
+    target_id = int(data.split("_")[1])
+
+    async for session in get_session():
+        me = await session.scalar(select(User).where(User.telegram_id == telegram_id))
+        if not me:
+            return await callback_query.message.answer("⚠️ Твоя анкета ще не створена.")
+
+        # Проверяем, не заблокирован ли уже
+        from app.models.blocked_users import BlockedUser
+        exists_block = await session.scalar(
+            select(BlockedUser).where(
+                BlockedUser.blocker_id == me.id,
+                BlockedUser.blocked_id == target_id
+            )
+        )
+        if not exists_block:
+            block = BlockedUser(blocker_id=me.id, blocked_id=target_id)
+            session.add(block)
+            await session.commit()
+            await callback_query.message.answer("🚫 Користувача заблоковано. Наступна анкета:")
+        else:
+            await callback_query.message.answer("🚫 Користувач вже заблокований. Наступна анкета:")
+
+    await callback_query.message.delete()
+    await callback_query.answer()
+    # Показываем наступну анкету
+    await show_next_profile(callback_query.message)
 
 def register_swipe_handlers(dp: Dispatcher):
-    # Регистрация обработчика для кнопки "Знайомитись" на нескольких языках
+    # Регистрация обработчика для кнопки "Знайомитись" на кількох мовах
     dp.register_message_handler(cmd_start_swipes, lambda m: "Знайомитись" in m.text or "Знакомиться" in m.text or "Meet people" in m.text or "Leute kennenlernen" in m.text)
     dp.register_callback_query_handler(handle_swipe, lambda c: c.data.startswith(("like_", "dislike_")))
+    dp.register_callback_query_handler(handle_block, lambda c: c.data.startswith("block_"))
     dp.register_callback_query_handler(handle_report, lambda c: c.data.startswith("report_"))
