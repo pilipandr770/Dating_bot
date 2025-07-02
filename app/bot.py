@@ -11,6 +11,7 @@ from app.handlers.start import register_start_handlers
 from app.handlers.registration import register_registration_handlers
 from app.handlers.swipes import register_swipe_handlers
 from app.handlers.chat import register_chat_handlers
+from app.handlers.search_settings import register_search_settings_handlers
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 storage = MemoryStorage()
@@ -23,6 +24,7 @@ async def main():
 
     # Реєстрація обробників
     register_start_handlers(dp)
+    register_search_settings_handlers(dp)  # Регистрируем первым для приоритета
     register_registration_handlers(dp)
     register_swipe_handlers(dp)
     register_chat_handlers(dp)

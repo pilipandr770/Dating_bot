@@ -9,6 +9,7 @@ def get_main_menu(lang: str):
             "profile": "📝 Анкета",
             "swipes": "👥 Знайомитись",
             "matches": "❤️ Мої матчі",
+            "settings": "⚙️ Налаштування пошуку",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -18,6 +19,7 @@ def get_main_menu(lang: str):
             "profile": "📝 Анкета",
             "swipes": "👥 Знакомиться",
             "matches": "❤️ Мои матчи",
+            "settings": "⚙️ Настройки поиска",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -27,6 +29,7 @@ def get_main_menu(lang: str):
             "profile": "📝 Profile",
             "swipes": "👥 Meet people",
             "matches": "❤️ My matches",
+            "settings": "⚙️ Search settings",
             "privacy": "🛡 Privacy Policy",
             "agb": "📜 Terms of Use",
             "impressum": "ℹ️ Imprint"
@@ -36,6 +39,7 @@ def get_main_menu(lang: str):
             "profile": "📝 Profil",
             "swipes": "👥 Leute kennenlernen",
             "matches": "❤️ Meine Matches",
+            "settings": "⚙️ Sucheinstellungen",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -54,6 +58,6 @@ def get_main_menu(lang: str):
         input_field_placeholder="Виберіть дію"
     )
     kb.row(KeyboardButton(t["swipes"]), KeyboardButton(t["matches"]))
-    kb.row(KeyboardButton(t["profile"]))
+    kb.row(KeyboardButton(t["profile"]), KeyboardButton(t["settings"]))
     kb.row(KeyboardButton(t["privacy"]), KeyboardButton(t["agb"]), KeyboardButton(t["impressum"]))
     return kb

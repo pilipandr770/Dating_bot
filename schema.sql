@@ -139,3 +139,16 @@ CREATE TABLE IF NOT EXISTS dating_bot.blocked_users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_blocker_blocked UNIQUE (blocker_id, blocked_id)
 );
+
+-- Налаштування пошуку
+CREATE TABLE IF NOT EXISTS dating_bot.search_settings (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES dating_bot.users(id) ON DELETE CASCADE UNIQUE,
+    min_age INTEGER DEFAULT 18,
+    max_age INTEGER DEFAULT 99,
+    preferred_gender TEXT,
+    max_distance INTEGER DEFAULT 100,
+    city_filter BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

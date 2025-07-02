@@ -446,7 +446,7 @@ def register_registration_handlers(dp: Dispatcher):
     dp.register_message_handler(on_photo, content_types=types.ContentType.PHOTO, state=Registration.photo)
     
     # Обробник для кнопки "Анкета" в головному меню
-    dp.register_message_handler(cmd_profile, lambda m: "Анкета" in m.text or "Profile" in m.text or "Profil" in m.text)
+    dp.register_message_handler(cmd_profile, lambda m: "📝" in m.text and ("Анкета" in m.text or "Profile" in m.text or "Profil" in m.text))
     
     # Кнопки меню анкети
     dp.register_message_handler(process_name_button, lambda m: "Ввести ім'я" in m.text or "Ввести имя" in m.text or "Enter name" in m.text or "Name eingeben" in m.text)
