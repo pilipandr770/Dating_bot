@@ -13,6 +13,7 @@ from app.handlers.swipes import register_swipe_handlers
 from app.handlers.chat import register_chat_handlers
 from app.handlers.search_settings import register_search_settings_handlers
 from app.handlers.tokens import register_token_handlers
+from app.handlers.admin import register_admin_handlers
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 storage = MemoryStorage()
@@ -30,6 +31,7 @@ async def main():
     register_swipe_handlers(dp)
     register_chat_handlers(dp)
     register_token_handlers(dp)  # Регистрируем обработчики токенов
+    register_admin_handlers(dp)  # Регистрируем обработчики администратора
 
     # Запуск бота
     # Версія aiogram 2.25.1 

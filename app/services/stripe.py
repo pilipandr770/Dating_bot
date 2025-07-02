@@ -59,6 +59,16 @@ async def create_checkout_session(user_id: int, product_type: str, session: Asyn
     else:
         raise ValueError("❌ Невідомий тип продукту")
 
+    # Проверка и исправление URL для Stripe
+    success_url = STRIPE_SUCCESS_URL or "https://t.me/your_bot_name"
+    cancel_url = STRIPE_CANCEL_URL or "https://t.me/your_bot_name"
+    
+    # Убедимся, что URL содержит схему https://
+    if success_url and not (success_url.startswith('http://') or success_url.startswith('https://')):
+        success_url = f"https://{success_url}"
+    if cancel_url and not (cancel_url.startswith('http://') or cancel_url.startswith('https://')):
+        cancel_url = f"https://{cancel_url}"
+    
     checkout = stripe.checkout.Session.create(
         payment_method_types=["card"],
         line_items=[{
@@ -66,8 +76,8 @@ async def create_checkout_session(user_id: int, product_type: str, session: Asyn
             "quantity": 1,
         }],
         mode=mode,
-        success_url=f"{STRIPE_SUCCESS_URL}?success=true",
-        cancel_url=f"{STRIPE_CANCEL_URL}?canceled=true",
+        success_url=f"{success_url}?success=true",
+        cancel_url=f"{cancel_url}?canceled=true",
         metadata={
             "user_id": str(user_id),
             "product_type": product_type
@@ -123,5 +133,4 @@ async def confirm_payment(session_id: str, session: AsyncSession) -> bool:
         await session.commit()
         return True
     
-    return False
     return False

@@ -87,6 +87,9 @@ async def on_admin_withdrawals(callback_query: types.CallbackQuery):
                 response += f"Date: {withdrawal.timestamp}\n\n"
                 
                 markup.add(
+                    InlineKeyboardButton(f"ℹ️ Details #{withdrawal.id}", callback_data=f"admin_view_{withdrawal.id}")
+                )
+                markup.add(
                     InlineKeyboardButton(f"✅ Approve #{withdrawal.id}", callback_data=f"admin_approve_{withdrawal.id}"),
                     InlineKeyboardButton(f"❌ Reject #{withdrawal.id}", callback_data=f"admin_reject_{withdrawal.id}")
                 )
@@ -195,6 +198,62 @@ async def cmd_admin_withdrawal(message: types.Message):
         logger.error(f"Ошибка при обработке заявки: {str(e)}")
         await message.answer(f"❌ Ошибка при обработке заявки: {str(e)}")
 
+# Обработчик для просмотра детальной информации о заявке
+async def on_admin_view_withdrawal(callback_query: types.CallbackQuery):
+    telegram_id = str(callback_query.from_user.id)
+    
+    if not is_admin(telegram_id):
+        await callback_query.answer("❌ У вас нет прав администратора", show_alert=True)
+        return
+    
+    withdrawal_id = int(callback_query.data.split('_')[3])
+    
+    # Получаем данные о заявке
+    async for session in get_session():
+        try:
+            withdrawal = await session.scalar(
+                select(TokenWithdrawal).where(TokenWithdrawal.id == withdrawal_id)
+            )
+            
+            if not withdrawal:
+                await callback_query.message.edit_text(f"❌ Заявка #{withdrawal_id} не найдена.")
+                await callback_query.answer()
+                return
+            
+            # Получаем данные о пользователе
+            from app.models.user import User
+            user = await session.scalar(select(User).where(User.id == withdrawal.user_id))
+            
+            # Формируем детальное сообщение
+            message = f"📝 Детали заявки #{withdrawal.id}\n\n"
+            
+            message += f"Пользователь: {user.first_name if user else 'Unknown'}\n"
+            message += f"Telegram ID: {user.telegram_id if user else 'Unknown'}\n"
+            message += f"User ID: {withdrawal.user_id}\n\n"
+            
+            message += f"Сумма: {withdrawal.token_amount} токенов\n"
+            message += f"Статус: {withdrawal.status}\n"
+            message += f"Дата создания: {withdrawal.timestamp}\n\n"
+            
+            message += "Что вы хотите сделать с этой заявкой?"
+            
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            markup = InlineKeyboardMarkup(row_width=2)
+            
+            markup.add(
+                InlineKeyboardButton(f"✅ Одобрить", callback_data=f"admin_approve_{withdrawal.id}"),
+                InlineKeyboardButton(f"❌ Отклонить", callback_data=f"admin_reject_{withdrawal.id}")
+            )
+            markup.add(InlineKeyboardButton("⬅️ Назад к списку", callback_data="admin_withdrawals"))
+            
+            await callback_query.message.edit_text(message, reply_markup=markup)
+            await callback_query.answer()
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении информации о заявке: {str(e)}")
+            await callback_query.message.edit_text(f"❌ Ошибка при получении информации о заявке #{withdrawal_id}.")
+            await callback_query.answer()
+
 # Регистрация обработчиков
 def register_admin_handlers(dp: Dispatcher):
     dp.register_message_handler(cmd_admin, commands="admin", state="*")
@@ -204,3 +263,4 @@ def register_admin_handlers(dp: Dispatcher):
     dp.register_callback_query_handler(on_admin_approve_withdrawal, lambda c: c.data.startswith("admin_approve_"), state="*")
     dp.register_callback_query_handler(on_admin_reject_withdrawal, lambda c: c.data.startswith("admin_reject_"), state="*")
     dp.register_callback_query_handler(on_admin_back, lambda c: c.data == "admin_back", state="*")
+    dp.register_callback_query_handler(on_admin_view_withdrawal, lambda c: c.data.startswith("admin_view_"), state="*")

@@ -43,11 +43,22 @@ async def cmd_balance(message: types.Message):
     
     t = button_texts.get(lang, button_texts["en"])
     
+    # Дополняем словарь с кнопками
+    button_texts_history = {
+        "ua": "📊 Історія",
+        "ru": "📊 История",
+        "en": "📊 History",
+        "de": "📊 Verlauf"
+    }
+    
     markup.add(
         InlineKeyboardButton(t["add"], callback_data="token_add"),
         InlineKeyboardButton(t["transfer"], callback_data="token_transfer")
     )
-    markup.add(InlineKeyboardButton(t["withdraw"], callback_data="token_withdraw"))
+    markup.add(
+        InlineKeyboardButton(t["withdraw"], callback_data="token_withdraw"),
+        InlineKeyboardButton(button_texts_history.get(lang, button_texts_history["en"]), callback_data="token_history")
+    )
     
     await message.answer(texts.get(lang, texts["en"]), reply_markup=markup)
 
@@ -359,6 +370,110 @@ async def on_cancel_token_operation(callback_query: types.CallbackQuery, state: 
     await state.finish()
     await callback_query.answer()
 
+# Обработчик для отображения истории операций с токенами
+async def on_token_history(callback_query: types.CallbackQuery):
+    telegram_id = str(callback_query.from_user.id)
+    
+    # Получаем язык пользователя
+    lang = await get_user_language(telegram_id)
+    
+    # Получаем историю операций с токенами
+    from app.services.token_service import get_token_history
+    history = await get_token_history(telegram_id, limit=10)
+    
+    # Локализованные заголовки и сообщения
+    headers = {
+        "ua": {
+            "title": "📊 Історія операцій з токенами",
+            "empty": "У вас поки немає операцій з токенами.",
+            "purchase": "➕ Поповнення",
+            "transfer": "🔄 Переказ",
+            "withdrawal": "💸 Виведення",
+            "pending": "⏳ В обробці",
+            "confirmed": "✅ Підтверджено",
+            "rejected": "❌ Відхилено",
+            "approved": "✅ Схвалено",
+            "back": "⬅️ Назад"
+        },
+        "ru": {
+            "title": "📊 История операций с токенами",
+            "empty": "У вас пока нет операций с токенами.",
+            "purchase": "➕ Пополнение",
+            "transfer": "🔄 Перевод",
+            "withdrawal": "💸 Вывод",
+            "pending": "⏳ В обработке",
+            "confirmed": "✅ Подтверждено",
+            "rejected": "❌ Отклонено",
+            "approved": "✅ Одобрено",
+            "back": "⬅️ Назад"
+        },
+        "en": {
+            "title": "📊 Token Transaction History",
+            "empty": "You don't have any token transactions yet.",
+            "purchase": "➕ Purchase",
+            "transfer": "🔄 Transfer",
+            "withdrawal": "💸 Withdrawal",
+            "pending": "⏳ Processing",
+            "confirmed": "✅ Confirmed",
+            "rejected": "❌ Rejected",
+            "approved": "✅ Approved",
+            "back": "⬅️ Back"
+        },
+        "de": {
+            "title": "📊 Token-Transaktionsverlauf",
+            "empty": "Sie haben noch keine Token-Transaktionen.",
+            "purchase": "➕ Kauf",
+            "transfer": "🔄 Überweisung",
+            "withdrawal": "💸 Auszahlung",
+            "pending": "⏳ In Bearbeitung",
+            "confirmed": "✅ Bestätigt",
+            "rejected": "❌ Abgelehnt",
+            "approved": "✅ Genehmigt",
+            "back": "⬅️ Zurück"
+        }
+    }
+    
+    h = headers.get(lang, headers["en"])
+    
+    if not history:
+        # Если история пуста
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton(h["back"], callback_data="token_back_to_balance"))
+        await callback_query.message.edit_text(h["empty"], reply_markup=markup)
+        await callback_query.answer()
+        return
+    
+    # Формируем сообщение с историей операций
+    message = f"*{h['title']}*\n\n"
+    
+    for item in history:
+        # Определяем тип операции
+        op_type = h.get(item["type"], item["type"])
+        op_status = h.get(item["status"], item["status"])
+        timestamp = item["timestamp"].strftime("%d.%m.%Y %H:%M")
+        
+        # Форматируем сумму (добавляем + для положительных значений)
+        amount = item["amount"]
+        amount_str = f"+{amount}" if amount > 0 else str(amount)
+        
+        message += f"{op_type}: *{amount_str}* токенов\n"
+        message += f"Статус: {op_status}\n"
+        message += f"Дата: {timestamp}\n\n"
+    
+    # Добавляем кнопку возврата к балансу
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(h["back"], callback_data="token_back_to_balance"))
+    
+    # Отправляем сообщение с поддержкой Markdown
+    await callback_query.message.edit_text(message, reply_markup=markup, parse_mode="Markdown")
+    await callback_query.answer()
+
+# Обработчик для возврата к экрану баланса
+async def on_token_back_to_balance(callback_query: types.CallbackQuery):
+    # Просто вызываем обработчик баланса
+    await cmd_balance(callback_query.message)
+    await callback_query.answer()
+
 # Регистрация обработчиков
 def register_token_handlers(dp: Dispatcher):
     # Команда для просмотра баланса
@@ -377,6 +492,8 @@ def register_token_handlers(dp: Dispatcher):
     dp.register_callback_query_handler(on_token_withdraw, lambda c: c.data == "token_withdraw", state="*")
     dp.register_callback_query_handler(on_buy_tokens, lambda c: c.data.startswith("buy_tokens_"), state="*")
     dp.register_callback_query_handler(on_cancel_token_operation, lambda c: c.data == "cancel_token_operation", state="*")
+    dp.register_callback_query_handler(on_token_history, lambda c: c.data == "token_history", state="*")
+    dp.register_callback_query_handler(on_token_back_to_balance, lambda c: c.data == "token_back_to_balance", state="*")
     
     # Обработчики состояний для переводов
     dp.register_message_handler(process_receiver_id, state=TokenStates.waiting_for_receiver_id)
