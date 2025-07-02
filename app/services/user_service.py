@@ -204,6 +204,28 @@ async def save_user_photos(telegram_id: str, photo_file_ids: list) -> bool:
             print(f"❌ Ошибка при сохранении фотографий: {e}")
             return False
 
+async def get_user_by_telegram_id(telegram_id: str) -> User:
+    """
+    Получает пользователя по его Telegram ID
+    
+    Args:
+        telegram_id: Telegram ID пользователя
+    
+    Returns:
+        User: Объект пользователя или None, если не найден
+    """
+    async for session in get_session():
+        try:
+            # Ищем пользователя через SQLAlchemy
+            user = await session.scalar(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            return user
+            
+        except Exception as e:
+            print(f"❌ Ошибка при получении пользователя по Telegram ID: {e}")
+            return None
+
 async def get_user_photos(user_id: int):
     """
     Получает список file_id фотографий пользователя по его ID

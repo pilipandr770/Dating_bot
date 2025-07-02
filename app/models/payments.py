@@ -24,32 +24,23 @@ class PaymentStatus(str, enum.Enum):
 
 class Payment(Base):
     __tablename__ = "payments"
+    __table_args__ = ({'schema': 'dating_bot'})
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    receiver_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # для переказів
-
-    type = Column(Enum(PaymentType), nullable=False)
+    user_id = Column(Integer, ForeignKey("dating_bot.users.id", ondelete="CASCADE"), nullable=False)
+    
+    # Поля из schema.sql
+    type = Column(String, nullable=False)  # Вместо Enum для соответствия схеме
     amount = Column(Float, nullable=False)
     currency = Column(String(10), default="eur")
-    token_amount = Column(Float, nullable=True)  # якщо токени
-    status = Column(Enum(PaymentStatus), default=PaymentStatus.pending)
-
-    tariff = Column(Enum(TariffPlan), nullable=True)  # для підписки
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
-
+    token_amount = Column(Integer, nullable=True)  # Integer вместо Float
+    status = Column(String, default="pending")  # Вместо Enum для соответствия схеме
+    stripe_session_id = Column(String, nullable=True)  # Добавляем поле из схемы
+    tariff = Column(String, nullable=True)  # Для подписки
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Отношения
     user = relationship("User", foreign_keys=[user_id])
-    receiver = relationship("User", foreign_keys=[receiver_id])
 
-class TokenBalance(Base):
-    __tablename__ = "token_balances"
-
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
-    balance = Column(Float, default=0.0)
-
-    user = relationship("User", back_populates="token_balance")
-
-# У models/user.py потрібно додати:
-# from sqlalchemy.orm import relationship
-# ...
-# token_balance = relationship("TokenBalance", back_populates="user", uselist=False)
+# Примечание: TokenBalance класс удален, так как баланс токенов хранится 
+# непосредственно в таблице users (поле token_balance)

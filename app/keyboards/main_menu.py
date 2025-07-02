@@ -10,6 +10,7 @@ def get_main_menu(lang: str):
             "swipes": "👥 Знайомитись",
             "matches": "❤️ Мої матчі",
             "settings": "⚙️ Налаштування пошуку",
+            "balance": "💰 Баланс токенів",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -20,6 +21,7 @@ def get_main_menu(lang: str):
             "swipes": "👥 Знакомиться",
             "matches": "❤️ Мои матчи",
             "settings": "⚙️ Настройки поиска",
+            "balance": "💰 Баланс токенов",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -30,6 +32,7 @@ def get_main_menu(lang: str):
             "swipes": "👥 Meet people",
             "matches": "❤️ My matches",
             "settings": "⚙️ Search settings",
+            "balance": "💰 Token Balance",
             "privacy": "🛡 Privacy Policy",
             "agb": "📜 Terms of Use",
             "impressum": "ℹ️ Imprint"
@@ -40,6 +43,7 @@ def get_main_menu(lang: str):
             "swipes": "👥 Leute kennenlernen",
             "matches": "❤️ Meine Matches",
             "settings": "⚙️ Sucheinstellungen",
+            "balance": "💰 Token-Guthaben",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -58,6 +62,6 @@ def get_main_menu(lang: str):
         input_field_placeholder="Виберіть дію"
     )
     kb.row(KeyboardButton(t["swipes"]), KeyboardButton(t["matches"]))
-    kb.row(KeyboardButton(t["profile"]), KeyboardButton(t["settings"]))
+    kb.row(KeyboardButton(t["profile"]), KeyboardButton(t["settings"]), KeyboardButton(t["balance"]))
     kb.row(KeyboardButton(t["privacy"]), KeyboardButton(t["agb"]), KeyboardButton(t["impressum"]))
     return kb

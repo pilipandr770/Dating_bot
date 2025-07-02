@@ -42,14 +42,15 @@ async def stripe_webhook(
             payment = await session.scalar(
                 select(Payment)
                 .where(Payment.user_id == user.id)
-                .where(Payment.status == PaymentStatus.pending)
+                .where(Payment.status == "pending")
                 .order_by(Payment.timestamp.desc())
             )
             if payment:
-                payment.status = PaymentStatus.confirmed
-                if payment.type.name == "token_purchase":
-                    user.token_balance += int(payment.amount)
-                elif payment.type.name == "stripe":
+                payment.status = "confirmed"
+                if payment.type == "token_purchase":
+                    # Используем token_amount вместо amount
+                    user.token_balance += payment.token_amount or 0
+                elif payment.type == "stripe":
                     user.is_premium = True
                 await session.commit()
 
