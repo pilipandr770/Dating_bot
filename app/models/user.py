@@ -45,4 +45,5 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     token_balance = Column(Integer, default=0)
     is_premium = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

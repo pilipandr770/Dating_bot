@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS dating_bot.users (
     is_verified BOOLEAN DEFAULT FALSE,
     token_balance INTEGER DEFAULT 0,
     is_premium BOOLEAN DEFAULT FALSE,
+    is_admin BOOLEAN DEFAULT FALSE,
+    language TEXT DEFAULT 'ua',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

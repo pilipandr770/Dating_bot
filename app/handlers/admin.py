@@ -32,18 +32,99 @@ async def cmd_admin(message: types.Message):
     telegram_id = str(message.from_user.id)
     
     if not is_admin(telegram_id):
+        await message.answer("❌ У вас нет прав администратора")
         return
     
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    # Обновляем флаг is_admin в базе данных
+    await update_admin_status(telegram_id)
     
-    markup = InlineKeyboardMarkup(row_width=1)
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+    
+    # Создаем клавиатуру с основными функциями администратора
+    markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
-        InlineKeyboardButton("📊 Статистика пользователей", callback_data="admin_stats"),
-        InlineKeyboardButton("💸 Заявки на вывод", callback_data="admin_withdrawals"),
-        InlineKeyboardButton("🔄 Обновить бота", callback_data="admin_update_bot")
+        InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
+        InlineKeyboardButton("💸 Заявки на вывод", callback_data="admin_withdrawals")
+    )
+    markup.add(
+        InlineKeyboardButton("👥 Пользователи", callback_data="admin_users"),
+        InlineKeyboardButton("� Токены", callback_data="admin_tokens")
+    )
+    markup.add(
+        InlineKeyboardButton("⚙️ Настройки", callback_data="admin_settings"),
+        InlineKeyboardButton("�🔄 Обновить бота", callback_data="admin_update_bot")
     )
     
-    await message.answer("👨‍💻 Панель администратора", reply_markup=markup)
+    # Получаем количество ожидающих заявок на вывод
+    pending_count = await get_pending_withdrawals_count()
+    
+    # Получаем статистику по пользователям
+    users_count = await get_users_count()
+    
+    admin_message = (
+        "👨‍💻 *Панель администратора*\n\n"
+        f"👥 Пользователей: {users_count}\n"
+        f"💸 Ожидающих заявок на вывод: {pending_count}\n\n"
+        "Выберите действие:"
+    )
+    
+    await message.answer(admin_message, reply_markup=markup, parse_mode="Markdown")
+
+# Функция для обновления статуса администратора в БД
+async def update_admin_status(telegram_id: str):
+    """Обновляет флаг is_admin=true для пользователя"""
+    async for session in get_session():
+        try:
+            # Ищем пользователя
+            from app.models.user import User
+            from sqlalchemy import update
+            
+            # Обновляем флаг is_admin
+            await session.execute(
+                update(User)
+                .where(User.telegram_id == telegram_id)
+                .values(is_admin=True)
+            )
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Ошибка при обновлении статуса администратора: {str(e)}")
+
+# Функция для получения количества ожидающих заявок на вывод
+async def get_pending_withdrawals_count() -> int:
+    """Возвращает количество заявок на вывод в статусе pending"""
+    async for session in get_session():
+        try:
+            result = await session.scalar(
+                select(
+                    select(TokenWithdrawal)
+                    .where(TokenWithdrawal.status == "pending")
+                    .distinct()
+                    .count()
+                )
+            )
+            return result or 0
+        except Exception as e:
+            logger.error(f"Ошибка при получении количества заявок: {str(e)}")
+            return 0
+
+# Функция для получения количества пользователей
+async def get_users_count() -> int:
+    """Возвращает общее количество пользователей"""
+    async for session in get_session():
+        try:
+            from app.models.user import User
+            result = await session.scalar(
+                select(
+                    select(User)
+                    .distinct()
+                    .count()
+                )
+            )
+            return result or 0
+        except Exception as e:
+            logger.error(f"Ошибка при получении количества пользователей: {str(e)}")
+            return 0
 
 # Обработчик для просмотра заявок на вывод
 async def on_admin_withdrawals(callback_query: types.CallbackQuery):
@@ -152,14 +233,35 @@ async def on_admin_back(callback_query: types.CallbackQuery):
     
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
-    markup = InlineKeyboardMarkup(row_width=1)
+    # Создаем клавиатуру с основными функциями администратора
+    markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
-        InlineKeyboardButton("📊 Статистика пользователей", callback_data="admin_stats"),
-        InlineKeyboardButton("💸 Заявки на вывод", callback_data="admin_withdrawals"),
+        InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
+        InlineKeyboardButton("💸 Заявки на вывод", callback_data="admin_withdrawals")
+    )
+    markup.add(
+        InlineKeyboardButton("👥 Пользователи", callback_data="admin_users"),
+        InlineKeyboardButton("💰 Токены", callback_data="admin_tokens")
+    )
+    markup.add(
+        InlineKeyboardButton("⚙️ Настройки", callback_data="admin_settings"),
         InlineKeyboardButton("🔄 Обновить бота", callback_data="admin_update_bot")
     )
     
-    await callback_query.message.edit_text("👨‍💻 Панель администратора", reply_markup=markup)
+    # Получаем количество ожидающих заявок на вывод
+    pending_count = await get_pending_withdrawals_count()
+    
+    # Получаем статистику по пользователям
+    users_count = await get_users_count()
+    
+    admin_message = (
+        "👨‍💻 *Панель администратора*\n\n"
+        f"👥 Пользователей: {users_count}\n"
+        f"💸 Ожидающих заявок на вывод: {pending_count}\n\n"
+        "Выберите действие:"
+    )
+    
+    await callback_query.message.edit_text(admin_message, reply_markup=markup, parse_mode="Markdown")
     await callback_query.answer()
 
 # Обработчик команды для быстрой обработки заявки
