@@ -9,6 +9,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.utils.exceptions import BotBlocked, Unauthorized, InvalidQueryID, TelegramAPIError
 from app.config import TELEGRAM_BOT_TOKEN
 from app.database import init_db
+from app.cinema import register_cinema_handlers
 
 # Configure logging
 logging.basicConfig(
@@ -133,6 +134,14 @@ async def main():
                 ("admin_venue_list_handlers", register_admin_venue_list_handlers),
                 ("admin_message_handlers", register_admin_message_handlers)
             ]
+            
+            # Регистрация хендлеров кинотеатра
+            try:
+                register_cinema_handlers(dp)
+                logger.info("✅ cinema_handlers registered successfully")
+            except Exception as e:
+                logger.error(f"❌ Error registering cinema_handlers: {e}")
+                logger.error(traceback.format_exc())
             
             for handler_name, handler_func in handler_registrations:
                 try:

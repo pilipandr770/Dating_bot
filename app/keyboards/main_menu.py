@@ -12,6 +12,7 @@ def get_main_menu(lang: str):
             "settings": "⚙️ Налаштування пошуку",
             "balance": "💰 Баланс токенів",
             "reservation": "📅 Бронювання",
+            "cinema": "🎬 Кіно",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -24,6 +25,7 @@ def get_main_menu(lang: str):
             "settings": "⚙️ Настройки поиска",
             "balance": "💰 Баланс токенов",
             "reservation": "📅 Бронирование",
+            "cinema": "🎬 Кино",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -36,6 +38,7 @@ def get_main_menu(lang: str):
             "settings": "⚙️ Search settings",
             "balance": "💰 Token Balance",
             "reservation": "📅 Reservation",
+            "cinema": "🎬 Cinema",
             "privacy": "🛡 Privacy Policy",
             "agb": "📜 Terms of Use",
             "impressum": "ℹ️ Imprint"
@@ -48,6 +51,7 @@ def get_main_menu(lang: str):
             "settings": "⚙️ Sucheinstellungen",
             "balance": "💰 Token-Guthaben",
             "reservation": "📅 Buchung",
+            "cinema": "🎬 Kino",
             "privacy": "🛡 Datenschutz",
             "agb": "📜 AGB",
             "impressum": "ℹ️ Impressum"
@@ -67,6 +71,6 @@ def get_main_menu(lang: str):
     )
     kb.row(KeyboardButton(t["swipes"]), KeyboardButton(t["matches"]))
     kb.row(KeyboardButton(t["profile"]), KeyboardButton(t["settings"]), KeyboardButton(t["balance"]))
-    kb.row(KeyboardButton(t["reservation"]), KeyboardButton(t["privacy"]))  # Добавлена кнопка бронирования
+    kb.row(KeyboardButton(t["reservation"]), KeyboardButton(t["cinema"]), KeyboardButton(t["privacy"]))  # Добавлены кнопки бронирования и кино
     kb.row(KeyboardButton(t["agb"]), KeyboardButton(t["impressum"]))
     return kb

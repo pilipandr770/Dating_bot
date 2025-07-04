@@ -154,3 +154,12 @@ CREATE TABLE IF NOT EXISTS dating_bot.search_settings (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS dating_bot.cinema_purchases (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES dating_bot.users(id) ON DELETE CASCADE,
+    film_id TEXT NOT NULL,
+    film_title TEXT NOT NULL,
+    room_url TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

@@ -250,6 +250,13 @@ async def process_place_type(callback_query: types.CallbackQuery, state: FSMCont
                     await callback_query.message.edit_text(message_content)
                 logger.info(f"[PLACE_TYPE] Message edited successfully")
                 message_sent = True
+                # Переходим к выбору конкретного заведения
+                try:
+                    await state.set_state(BookingState.waiting_for_place)
+                    logger.info(f"[PLACE_TYPE] State changed to waiting_for_place")
+                except Exception as e:
+                    logger.error(f"[PLACE_TYPE] Error changing state: {e}")
+                    logger.error(traceback.format_exc())
             except Exception as e:
                 logger.error(f"[PLACE_TYPE] Error editing message: {e}")
                 logger.error(traceback.format_exc())
@@ -263,6 +270,13 @@ async def process_place_type(callback_query: types.CallbackQuery, state: FSMCont
                     await callback_query.message.answer(message_content)
                 logger.info(f"[PLACE_TYPE] Sent new message as fallback")
                 message_sent = True
+                # Переходим к выбору конкретного заведения
+                try:
+                    await state.set_state(BookingState.waiting_for_place)
+                    logger.info(f"[PLACE_TYPE] State changed to waiting_for_place")
+                except Exception as e:
+                    logger.error(f"[PLACE_TYPE] Error changing state: {e}")
+                    logger.error(traceback.format_exc())
             except Exception as e:
                 logger.error(f"[PLACE_TYPE] Error sending fallback message: {e}")
                 logger.error(traceback.format_exc())
@@ -272,6 +286,13 @@ async def process_place_type(callback_query: types.CallbackQuery, state: FSMCont
             try:
                 simple_msg = f"Selected {place_type} in {city}. Please check available options."
                 await callback_query.message.answer(simple_msg)
+                # И здесь тоже переводим состояние, чтобы не застрять
+                try:
+                    await state.set_state(BookingState.waiting_for_place)
+                    logger.info(f"[PLACE_TYPE] State changed to waiting_for_place")
+                except Exception as e:
+                    logger.error(f"[PLACE_TYPE] Error changing state: {e}")
+                    logger.error(traceback.format_exc())
                 logger.info(f"[PLACE_TYPE] Sent simplified fallback message")
                 message_sent = True
             except Exception as e:
