@@ -1,0 +1,449 @@
+# app/booking/new_handlers.py
+
+from aiogram import types, Dispatcher
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+import logging
+import traceback
+from app.database import get_session
+from app.services.user_service import get_user_by_telegram_id, get_user_language
+from app.booking.keyboards import place_type_keyboard, back_button_keyboard
+from app.booking.models import PlaceType
+from app.booking.services_db import VenueService
+from sqlalchemy import text
+
+# Настройка логирования
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
+
+# Тестовый вывод для проверки логирования
+logger.info("🔄 NEW HANDLER FILE LOADED - This is the new handlers implementation!")
+logger.info("🔄 If you see this message, new_handlers.py is being used")
+
+# Определяем состояния FSM для бронирования
+class BookingStates(StatesGroup):
+    choosing_city = State()
+    choosing_place_type = State()
+
+# Локализованные тексты
+texts = {
+    "ua": {
+        "choose_city": "🌆 Введіть назву міста, де ви бажаєте забронювати місце:",
+        "choose_place_type": "🏙 Обрано місто: *{city}*\n\nОберіть тип закладу:",
+        "venue_list": "✅ Ви обрали: *{place_type}*\n\nДоступні заклади цього типу:",
+        "coming_soon": "✅ Ви обрали: *{place_type}*\n\nБронювання закладів цього типу буде доступно найближчим часом.",
+        "error": "❌ Сталася помилка. Будь ласка, спробуйте ще раз пізніше.",
+        "back_button": "🔙 Назад"
+    },
+    "ru": {
+        "choose_city": "🌆 Введите название города, где вы хотите забронировать место:",
+        "choose_place_type": "🏙 Выбран город: *{city}*\n\nВыберите тип заведения:",
+        "venue_list": "✅ Вы выбрали: *{place_type}*\n\nДоступные заведения этого типа:",
+        "coming_soon": "✅ Вы выбрали: *{place_type}*\n\nБронирование заведений этого типа будет доступно в ближайшее время.",
+        "error": "❌ Произошла ошибка. Пожалуйста, попробуйте снова позже.",
+        "back_button": "🔙 Назад"
+    },
+    "en": {
+        "choose_city": "🌆 Enter the name of the city where you want to book a place:",
+        "choose_place_type": "🏙 Selected city: *{city}*\n\nChoose the type of venue:",
+        "venue_list": "✅ You selected: *{place_type}*\n\nAvailable venues of this type:",
+        "coming_soon": "✅ You selected: *{place_type}*\n\nBooking for venues of this type will be available soon.",
+        "error": "❌ An error occurred. Please try again later.",
+        "back_button": "🔙 Back"
+    },
+    "de": {
+        "choose_city": "🌆 Geben Sie den Namen der Stadt ein, in der Sie einen Platz buchen möchten:",
+        "choose_place_type": "🏙 Ausgewählte Stadt: *{city}*\n\nWählen Sie die Art des Veranstaltungsortes:",
+        "venue_list": "✅ Sie haben ausgewählt: *{place_type}*\n\nVerfügbare Locations dieses Typs:",
+        "coming_soon": "✅ Sie haben ausgewählt: *{place_type}*\n\nBuchungen für Locations dieses Typs werden in Kürze verfügbar sein.",
+        "error": "❌ Ein Fehler ist aufgetreten. Bitte versuchen Sie es später noch einmal.",
+        "back_button": "🔙 Zurück"
+    }
+}
+
+# Локализованные названия типов мест
+place_type_names = {
+    "ua": {"restaurant": "Ресторан", "cafe": "Кафе", "bar": "Бар", "cinema": "Кінотеатр", "event": "Подія", "park": "Парк", "other": "Інше"},
+    "ru": {"restaurant": "Ресторан", "cafe": "Кафе", "bar": "Бар", "cinema": "Кинотеатр", "event": "Событие", "park": "Парк", "other": "Другое"},
+    "en": {"restaurant": "Restaurant", "cafe": "Cafe", "bar": "Bar", "cinema": "Cinema", "event": "Event", "park": "Park", "other": "Other"},
+    "de": {"restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "cinema": "Kino", "event": "Veranstaltung", "park": "Park", "other": "Andere"}
+}
+
+# Тестовые данные для резервного использования
+default_venues = {
+    "restaurant": [
+        {"name": "Ресторан Мавка", "url": "https://mavka.ua", "description": "Украинская кухня", "admin_message": "Скидка 10% по промокоду SOUL_LINK"},
+        {"name": "Тестовый Ресторан", "url": "https://example.com/test-restaurant", "description": "Тестовый ресторан для демонстрации", "admin_message": ""}
+    ],
+    "cafe": [
+        {"name": "Уютное кафе", "url": "https://example.com/cozy-cafe", "description": "Отличное место для встреч и общения", "admin_message": ""},
+        {"name": "Кофейня \"Аромат\"", "url": "https://example.com/coffee-aroma", "description": "Лучший кофе и десерты", "admin_message": ""}
+    ],
+    "bar": [
+        {"name": "Спорт-бар", "url": "https://example.com/sports-bar", "description": "Трансляции всех важных матчей", "admin_message": ""},
+        {"name": "Коктейль-бар", "url": "https://example.com/cocktail-bar", "description": "Уникальные авторские коктейли", "admin_message": ""}
+    ],
+    "cinema": [
+        {"name": "Кинотеатр \"Звезда\"", "url": "https://example.com/star-cinema", "description": "Премьеры и классика кино", "admin_message": ""},
+        {"name": "IMAX Кинотеатр", "url": "https://example.com/imax-cinema", "description": "Максимальное погружение в фильм", "admin_message": ""}
+    ],
+    "event": [
+        {"name": "Городской парк развлечений", "url": "https://example.com/city-park", "description": "Развлечения на свежем воздухе", "admin_message": ""},
+        {"name": "Концертный зал", "url": "https://example.com/concert-hall", "description": "Живая музыка и выступления", "admin_message": ""}
+    ],
+    "park": [
+        {"name": "Центральный парк", "url": "https://example.com/central-park", "description": "Тихие аллеи и красивые виды", "admin_message": ""},
+        {"name": "Ботанический сад", "url": "https://example.com/botanical-garden", "description": "Редкие растения и экзотические цветы", "admin_message": ""}
+    ]
+}
+
+async def get_text(key, lang, **kwargs):
+    """Получение локализованного текста с подстановкой параметров"""
+    text = texts.get(lang, texts["en"]).get(key, texts["en"][key])
+    return text.format(**kwargs) if kwargs else text
+
+async def get_user_city(telegram_id):
+    """Получение города пользователя из профиля"""
+    async for session in get_session():
+        user = await get_user_by_telegram_id(session, telegram_id)
+        return user.city if user and user.city else None
+
+# Обработчики команд и колбэков
+async def cmd_booking(message: Message, state: FSMContext):
+    """Обработчик команды бронирования"""
+    telegram_id = str(message.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    # Сбрасываем состояние FSM
+    await state.finish()
+    
+    # Проверяем, есть ли у пользователя город в профиле
+    user_city = await get_user_city(telegram_id)
+    
+    if user_city:
+        # Если город известен, сразу показываем меню выбора типа места
+        logger.info(f"[NEW] Город известен: {user_city}, показываем меню типов мест")
+        message_text = await get_text("choose_place_type", lang, city=user_city)
+        await message.answer(message_text, reply_markup=place_type_keyboard(lang), parse_mode="Markdown")
+    else:
+        # Если город не известен, просим пользователя ввести город
+        await BookingStates.choosing_city.set()
+        message_text = await get_text("choose_city", lang)
+        await message.answer(message_text)
+        logger.info("[NEW] Город не известен, запрашиваем у пользователя")
+
+async def process_city(message: Message, state: FSMContext):
+    """Обработчик для получения города"""
+    telegram_id = str(message.from_user.id)
+    city = message.text.strip()
+    lang = await get_user_language(telegram_id)
+    
+    # Сохраняем город в состоянии
+    await state.update_data(city=city)
+    
+    # Переходим к выбору типа места
+    await BookingStates.choosing_place_type.set()
+    
+    message_text = await get_text("choose_place_type", lang, city=city)
+    await message.answer(message_text, reply_markup=place_type_keyboard(lang), parse_mode="Markdown")
+    logger.info(f"[NEW] Пользователь ввел город: {city}, показываем меню типов мест")
+
+async def process_place_type(call: CallbackQuery, state: FSMContext):
+    """Обработчик для выбора типа места"""
+    logger.info("[NEW] ===== НАЧАЛО ОБРАБОТКИ ВЫБОРА ТИПА МЕСТА =====")
+    try:
+        # Показываем пользователю, что кнопка нажата
+        await call.answer()
+        logger.info("[NEW] Показываем пользователю, что кнопка нажата")
+        
+        telegram_id = str(call.from_user.id)
+        lang = await get_user_language(telegram_id)
+        logger.info(f"[NEW] Язык пользователя: {lang}")
+        
+        logger.info(f"[NEW] process_place_type вызван с callback_data: {call.data}")
+        
+        # Получаем тип места из колбэка
+        parts = call.data.split(":")
+        if len(parts) < 3:
+            logger.error(f"[NEW] Недопустимый формат callback_data: {call.data}")
+            error_text = await get_text("error", lang)
+            await call.message.answer(error_text)
+            return
+        
+        place_type = parts[2]
+        logger.info(f"[NEW] Выбран тип места: {place_type}, callback_data: {call.data}")
+        
+        # Получаем локализованное название типа места
+        place_type_dict = place_type_names.get(lang, place_type_names["en"])
+        place_type_localized = place_type_dict.get(place_type, place_type)
+        
+        # Получаем данные о состоянии
+        data = await state.get_data()
+        city = data.get("city", None)
+        
+        # Пытаемся получить заведения из базы данных
+        venues = []
+        try:
+            async for session in get_session():
+                # Отладка: запрашиваем структуру таблицы
+                await VenueService.debug_db_schema(session, "dating_bot.places")
+                
+                # Получаем все заведения из БД для отладки
+                debug_query = text("SELECT id, name, type, city FROM dating_bot.places")
+                debug_result = await session.execute(debug_query)
+                debug_venues = debug_result.fetchall()
+                logger.info(f"[NEW] Всего заведений в БД: {len(debug_venues)}")
+                for v in debug_venues:
+                    logger.info(f"[NEW] ID: {v[0]}, Имя: {v[1]}, Тип: {v[2]}, Город: {v[3]}")
+                
+                # Получаем заведения из БД по типу и городу
+                logger.info(f"[NEW] Запрашиваем заведения типа '{place_type}' в городе '{city}'")
+                venues = await VenueService.get_venues_by_type_and_city(session, place_type, city)
+                logger.info(f"[NEW] Получено {len(venues)} заведений из БД для типа {place_type} в городе {city or 'любом'}")
+        except Exception as db_error:
+            logger.error(f"[NEW] Ошибка при работе с базой данных: {db_error}")
+            logger.debug(traceback.format_exc())
+            # Используем тестовые данные в случае ошибки
+            venues = default_venues.get(place_type, [])
+            logger.info(f"[NEW] Используем тестовые данные: {len(venues)} заведений")
+        
+        # Если из БД ничего не получили, используем тестовые данные
+        if not venues:
+            venues = default_venues.get(place_type, [])
+            logger.info(f"[NEW] БД не вернула результатов, используем тестовые данные: {len(venues)} заведений")
+        
+        # Пробуем получить сообщение администратора для этого города и типа заведения
+        admin_message = None
+        try:
+            logger.info(f"[NEW] Запрашиваем сообщение админа для города '{city}' и типа '{place_type}'")
+            from app.booking.services_admin_message import AdminMessageService
+            
+            async for session in get_session():
+                # Проверяем и нормализуем параметры
+                city_value = city if city else "Unknown"
+                if not isinstance(city_value, str):
+                    city_value = str(city_value)
+                
+                place_type_value = place_type
+                if not isinstance(place_type_value, str):
+                    place_type_value = str(place_type_value)
+                
+                logger.info(f"[NEW] Используем нормализованные параметры: город='{city_value}', тип места='{place_type_value}'")
+                
+                # Используем улучшенную гибкую версию для получения сообщения с запасными вариантами
+                try:
+                    # Сначала проверяем наличие таблицы
+                    check_table_query = text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'dating_bot' AND table_name = 'admin_messages');")
+                    check_result = await session.execute(check_table_query)
+                    table_exists = check_result.scalar()
+                    
+                    if not table_exists:
+                        logger.error("[NEW] Таблица admin_messages не существует!")
+                        continue
+                    
+                    # Используем гибкий метод поиска с запасными вариантами
+                    admin_message = await AdminMessageService.get_admin_message_flexible(session, city_value, place_type_value)
+                    if admin_message:
+                        logger.info(f"[NEW] Найдено сообщение администратора: '{admin_message[:100]}...'")
+                    else:
+                        logger.info(f"[NEW] Не найдено сообщение администратора для города '{city_value}' и типа '{place_type_value}'")
+                except Exception as get_msg_error:
+                    logger.error(f"[NEW] Ошибка при запросе админского сообщения: {get_msg_error}")
+        except Exception as admin_msg_error:
+            logger.error(f"[NEW] Общая ошибка при получении сообщения администратора: {admin_msg_error}")
+            logger.error(f"[NEW] Полный стек ошибки:\n{traceback.format_exc()}")
+            
+        # Если нет заведений, показываем сообщение "скоро будет доступно"
+        if not venues:
+            message_text = await get_text("coming_soon", lang, place_type=place_type_localized)
+            
+            # Если есть сообщение админа, добавляем его
+            if admin_message and isinstance(admin_message, str) and admin_message.strip():
+                logger.info(f"[NEW] Добавляем админское сообщение к 'скоро будет доступно': {admin_message[:30]}...")
+                message_text += f"\n\nℹ️ {admin_message}"
+                # Печатаем полный текст для отладки
+                logger.info(f"[NEW] Полный текст сообщения с админским сообщением:\n{message_text}")
+            else:
+                logger.info(f"[NEW] Админское сообщение отсутствует или некорректно, не добавляем его")
+                logger.info(f"[NEW] Значение admin_message: {admin_message}, тип: {type(admin_message).__name__ if admin_message is not None else 'None'}")
+            
+            # Создаем клавиатуру только с кнопкой "Назад"
+            kb = InlineKeyboardMarkup(row_width=1)
+            back_button_text = await get_text("back_button", lang)
+            kb.add(InlineKeyboardButton(back_button_text, callback_data="booking:back"))
+            
+            # Выводим полный текст сообщения для отладки
+            logger.info(f"[NEW] Полный текст сообщения 'скоро будет доступно': {message_text}")
+            
+            # Отправляем сообщение
+            try:
+                logger.info(f"[NEW] Пытаемся отправить сообщение 'скоро будет доступно' с Markdown")
+                # Получаем текущий текст сообщения для отладки
+                original_text = call.message.text if call.message.text else "Нет текста"
+                logger.info(f"[NEW] Текущий текст сообщения: {original_text}")
+                
+                # Отправляем сообщение
+                await call.message.edit_text(message_text, reply_markup=kb, parse_mode="Markdown")
+                logger.info(f"[NEW] Отправлено сообщение 'скоро будет доступно' для типа места: {place_type}")
+            except Exception as e:
+                logger.error(f"[NEW] Ошибка при отправке сообщения 'скоро будет доступно': {e}")
+                # Проверяем, есть ли специфичные символы, которые могут вызвать проблемы с Markdown
+                logger.info(f"[NEW] Пробуем отправить без Markdown. Текст сообщения: {message_text}")
+                try:
+                    # Очищаем возможные символы Markdown
+                    clean_message_text = message_text.replace('*', '').replace('_', '').replace('`', '')
+                    await call.message.edit_text(clean_message_text, reply_markup=kb)
+                    logger.info(f"[NEW] Сообщение отправлено без Markdown (очищен текст)")
+                except Exception as e2:
+                    logger.error(f"[NEW] Ошибка при повторной отправке без Markdown: {e2}")
+                    # Пробуем отправить новое сообщение вместо редактирования
+                    try:
+                        await call.message.answer("Информация о заведении будет доступна в ближайшее время.", reply_markup=kb)
+                        logger.info("[NEW] Отправлено запасное сообщение")
+                    except Exception as e3:
+                        logger.error(f"[NEW] Критическая ошибка при отправке запасного сообщения: {e3}")
+            
+        else:
+            # Создаем клавиатуру с заведениями и кнопкой "Назад"
+            kb = InlineKeyboardMarkup(row_width=1)
+            
+            # Добавляем кнопки для каждого заведения
+            for venue in venues:
+                venue_name = venue["name"]
+                venue_url = venue["url"]
+                kb.add(InlineKeyboardButton(f"🏢 {venue_name}", url=venue_url))
+            
+            # Добавляем кнопку "Назад"
+            back_button_text = await get_text("back_button", lang)
+            kb.add(InlineKeyboardButton(back_button_text, callback_data="booking:back"))
+            
+            # Создаем локализованное сообщение
+            message_text = await get_text("venue_list", lang, place_type=place_type_localized)
+            
+            # Если есть общее сообщение администратора для города и типа, добавляем его
+            if admin_message and isinstance(admin_message, str) and admin_message.strip():
+                logger.info(f"[NEW] Добавляем общее админское сообщение к списку заведений: {admin_message[:30]}...")
+                message_text += f"\n\nℹ️ {admin_message}"
+                # Печатаем полное сообщение с админским
+                logger.info(f"[NEW] Полное сообщение со списком заведений и админским сообщением:\n{message_text}")
+            else:
+                logger.info(f"[NEW] Общее админское сообщение отсутствует или некорректно, не добавляем его")
+                logger.info(f"[NEW] Значение admin_message: {admin_message}, тип: {type(admin_message).__name__ if admin_message is not None else 'None'}")
+            
+            # Если есть индивидуальные сообщения для конкретных заведений, добавляем их
+            venue_admin_messages = []
+            for venue in venues:
+                msg = venue.get("admin_message")
+                if msg and isinstance(msg, str) and msg.strip():
+                    venue_admin_messages.append(msg)
+            
+            if venue_admin_messages:
+                if not admin_message:  # Если нет общего сообщения, добавляем индивидуальные
+                    logger.info(f"[NEW] Добавляем {len(venue_admin_messages)} индивидуальных сообщений заведений")
+                    message_text += "\n\n" + "\n\n".join(f"ℹ️ {msg}" for msg in venue_admin_messages)
+            
+            # Выводим полный текст сообщения для отладки
+            logger.info(f"[NEW] Полный текст сообщения со списком заведений: {message_text}")
+            
+            # Отправляем сообщение
+            try:
+                logger.info(f"[NEW] Пытаемся отправить сообщение со списком заведений с Markdown")
+                # Получаем текущий текст сообщения для отладки
+                original_text = call.message.text if call.message.text else "Нет текста"
+                logger.info(f"[NEW] Текущий текст сообщения: {original_text}")
+                
+                # Отправляем сообщение
+                await call.message.edit_text(message_text, reply_markup=kb, parse_mode="Markdown")
+                logger.info(f"[NEW] Отправлен список заведений для типа места: {place_type}")
+            except Exception as e:
+                logger.error(f"[NEW] Ошибка при отправке сообщения со списком заведений: {e}")
+                # Проверяем, есть ли специфичные символы, которые могут вызвать проблемы с Markdown
+                logger.info(f"[NEW] Пробуем отправить без Markdown. Текст сообщения: {message_text}")
+                try:
+                    # Очищаем возможные символы Markdown
+                    clean_message_text = message_text.replace('*', '').replace('_', '').replace('`', '')
+                    await call.message.edit_text(clean_message_text, reply_markup=kb)
+                    logger.info(f"[NEW] Сообщение отправлено без Markdown (очищен текст)")
+                except Exception as e2:
+                    logger.error(f"[NEW] Ошибка при повторной отправке без Markdown: {e2}")
+                    # Пробуем отправить новое сообщение вместо редактирования
+                    try:
+                        venue_list_text = "\n".join([f"🏢 {v['name']}" for v in venues[:5]])
+                        await call.message.answer(f"Доступные заведения:\n{venue_list_text}", reply_markup=kb)
+                        logger.info("[NEW] Отправлено запасное сообщение со списком заведений")
+                    except Exception as e3:
+                        logger.error(f"[NEW] Критическая ошибка при отправке запасного сообщения: {e3}")
+        
+        # Сбрасываем состояние
+        await state.finish()
+        logger.info("[NEW] Состояние сброшено, обработка завершена успешно")
+        logger.info("[NEW] ===== КОНЕЦ ОБРАБОТКИ ВЫБОРА ТИПА МЕСТА =====")
+        
+    except Exception as e:
+        logger.error(f"[NEW] Ошибка при обработке типа места: {e}")
+        logger.error(f"[NEW] Полный стек ошибки:\n{traceback.format_exc()}")
+        try:
+            lang = await get_user_language(str(call.from_user.id))
+            error_text = await get_text("error", lang)
+            await call.message.answer(error_text)
+            logger.info("[NEW] Отправлено сообщение об ошибке")
+        except Exception as inner_e:
+            logger.error(f"[NEW] Дополнительная ошибка при отправке сообщения об ошибке: {inner_e}")
+            await call.message.answer("❌ An error occurred. Please try again later.")
+        finally:
+            logger.info("[NEW] ===== КОНЕЦ ОБРАБОТКИ ВЫБОРА ТИПА МЕСТА (С ОШИБКОЙ) =====")
+        
+
+async def back_to_menu(call: CallbackQuery, state: FSMContext):
+    """Обработчик кнопки 'Назад'"""
+    await call.answer()
+    await state.finish()
+    
+    telegram_id = str(call.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    # Проверяем, есть ли у пользователя город в профиле
+    user_city = await get_user_city(telegram_id)
+    
+    if user_city:
+        # Если город известен, показываем меню выбора типа места
+        message_text = await get_text("choose_place_type", lang, city=user_city)
+        await call.message.edit_text(message_text, reply_markup=place_type_keyboard(lang), parse_mode="Markdown")
+    else:
+        # Если город не известен, просим пользователя ввести город
+        await BookingStates.choosing_city.set()
+        message_text = await get_text("choose_city", lang)
+        await call.message.edit_text(message_text)
+    
+    logger.info(f"[NEW] Пользователь вернулся в меню бронирования")
+
+def register_booking_handlers(dp: Dispatcher):
+    """Регистрация обработчиков для бронирования"""
+    logger.info("[NEW] Регистрация обработчиков из new_handlers.py")
+    # Команды для входа в меню бронирования
+    dp.register_message_handler(
+        cmd_booking, 
+        lambda m: any(word in m.text for word in ["📅 Бронювання", "📅 Бронирование", "📅 Booking", "📅 Buchung"]),
+        state="*"
+    )
+    
+    # Обработчики для выбора города
+    dp.register_message_handler(process_city, state=BookingStates.choosing_city)
+    
+    # Обработчики для выбора типа места
+    dp.register_callback_query_handler(
+        process_place_type, 
+        lambda c: c.data.startswith("booking:type:"), 
+        state="*"
+    )
+    
+    # Служебные колбэки
+    dp.register_callback_query_handler(
+        back_to_menu, 
+        lambda c: c.data == "booking:back", 
+        state="*"
+    )

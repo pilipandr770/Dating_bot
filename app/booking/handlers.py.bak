@@ -1,0 +1,867 @@
+# app/booking/handlers.py
+
+from aiogram import types, Dispatcher
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+import logging
+
+from app.booking.keyboards import (
+    booking_menu_keyboard, place_type_keyboard
+)
+from app.database import get_session
+from app.services.user_service import get_user_by_telegram_id, get_user_language
+from app.models.user import User
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]  # Всегда добавляем вывод в консоль
+)
+logger = logging.getLogger(__name__)
+
+# Тестовый вывод для проверки логирования
+logger.info("Booking handlers loaded - logging is working")
+
+# Определяем состояния FSM для бронирования (только необходимые)
+class BookingStates(StatesGroup):
+    choosing_city = State()
+    choosing_place_type = State()
+
+# Информация о заведениях - это можно будет заменить на базу данных в будущем
+# Для каждого типа места есть несколько заведений с информацией
+venue_info = {
+    "restaurant": [
+        {"name": "Итальянская пиццерия", "url": "https://example.com/italian-pizza", "description": "Лучшая пицца в городе"},
+        {"name": "Французский ресторан", "url": "https://example.com/french-cuisine", "description": "Изысканная французская кухня"}
+    ],
+    "cafe": [
+        {"name": "Уютное кафе", "url": "https://example.com/cozy-cafe", "description": "Отличное место для встреч и общения"},
+        {"name": "Кофейня \"Аромат\"", "url": "https://example.com/coffee-aroma", "description": "Лучший кофе и десерты"}
+    ],
+    "bar": [
+        {"name": "Спорт-бар", "url": "https://example.com/sports-bar", "description": "Трансляции всех важных матчей"},
+        {"name": "Коктейль-бар", "url": "https://example.com/cocktail-bar", "description": "Уникальные авторские коктейли"}
+    ],
+    "cinema": [
+        {"name": "Кинотеатр \"Звезда\"", "url": "https://example.com/star-cinema", "description": "Премьеры и классика кино"},
+        {"name": "IMAX Кинотеатр", "url": "https://example.com/imax-cinema", "description": "Максимальное погружение в фильм"}
+    ],
+    "event": [
+        {"name": "Городской парк развлечений", "url": "https://example.com/city-park", "description": "Развлечения на свежем воздухе"},
+        {"name": "Концертный зал", "url": "https://example.com/concert-hall", "description": "Живая музыка и выступления"}
+    ],
+    "park": [
+        {"name": "Центральный парк", "url": "https://example.com/central-park", "description": "Тихие аллеи и красивые виды"},
+        {"name": "Ботанический сад", "url": "https://example.com/botanical-garden", "description": "Редкие растения и экзотические цветы"}
+    ]
+}
+
+# Локализованные тексты
+texts = {
+    "ua": {
+        "greeting": "📅 *Бронювання місця для зустрічі*\n\nОберіть дію:",
+        "choose_city": "🌆 Введіть назву міста, де ви бажаєте забронювати місце:",
+        "choose_place_type": "🏙 Обрано місто: *{city}*\n\nОберіть тип закладу:",
+        "choose_date": "📆 Обрано тип: *{place_type}*\n\nОберіть дату для бронювання:",
+        "enter_date": "📝 Будь ласка, введіть дату у форматі РРРР-ММ-ДД (наприклад, 2023-12-25):",
+        "select_place": "🔎 Знайдені варіанти для {city} на {date}:",
+        "no_places": "😔 На жаль, місць не знайдено. Спробуйте змінити параметри пошуку.",
+        "confirm_booking": "✅ Ви обрали *{place_name}*\n\n📍 Адреса: {address}\n🕒 Дата: {date}\n\nПідтвердіть бронювання:",
+        "booking_confirmed": "🎉 Ваше бронювання підтверджено!\n\n🏢 Місце: *{place_name}*\n📍 Адреса: {address}\n🕒 Дата: {date}\n🔑 Номер бронювання: `{reference}`",
+        "booking_cancelled": "❌ Бронювання скасовано.",
+        "my_bookings": "📋 *Ваші бронювання:*\n\n{bookings_list}",
+        "no_bookings": "📋 *Ваші бронювання:*\n\nУ вас поки що немає бронювань.",
+        "cancel_confirm": "❓ Ви впевнені, що бажаєте скасувати бронювання *{place_name}* на {date}?",
+        "booking_delete_success": "✅ Бронювання успішно скасовано."
+    },
+    "ru": {
+        "greeting": "📅 *Бронирование места для встречи*\n\nВыберите действие:",
+        "choose_city": "🌆 Введите название города, где вы хотите забронировать место:",
+        "choose_place_type": "🏙 Выбран город: *{city}*\n\nВыберите тип заведения:",
+        "choose_date": "📆 Выбран тип: *{place_type}*\n\nВыберите дату для бронирования:",
+        "enter_date": "📝 Пожалуйста, введите дату в формате ГГГГ-ММ-ДД (например, 2023-12-25):",
+        "select_place": "🔎 Найденные варианты для {city} на {date}:",
+        "no_places": "😔 К сожалению, мест не найдено. Попробуйте изменить параметры поиска.",
+        "confirm_booking": "✅ Вы выбрали *{place_name}*\n\n📍 Адрес: {address}\n🕒 Дата: {date}\n\nПодтвердите бронирование:",
+        "booking_confirmed": "🎉 Ваше бронирование подтверждено!\n\n🏢 Место: *{place_name}*\n📍 Адрес: {address}\n🕒 Дата: {date}\n🔑 Номер бронирования: `{reference}`",
+        "booking_cancelled": "❌ Бронирование отменено.",
+        "my_bookings": "📋 *Ваши бронирования:*\n\n{bookings_list}",
+        "no_bookings": "📋 *Ваши бронирования:*\n\nУ вас пока нет бронирований.",
+        "cancel_confirm": "❓ Вы уверены, что хотите отменить бронирование *{place_name}* на {date}?",
+        "booking_delete_success": "✅ Бронирование успешно отменено."
+    },
+    "en": {
+        "greeting": "📅 *Book a place for your date*\n\nChoose an action:",
+        "choose_city": "🌆 Enter the name of the city where you want to book a place:",
+        "choose_place_type": "🏙 Selected city: *{city}*\n\nChoose the type of venue:",
+        "choose_date": "📆 Selected type: *{place_type}*\n\nChoose a date for booking:",
+        "enter_date": "📝 Please enter a date in YYYY-MM-DD format (for example, 2023-12-25):",
+        "select_place": "🔎 Found options for {city} on {date}:",
+        "no_places": "😔 Unfortunately, no places were found. Try changing your search parameters.",
+        "confirm_booking": "✅ You have selected *{place_name}*\n\n📍 Address: {address}\n🕒 Date: {date}\n\nConfirm booking:",
+        "booking_confirmed": "🎉 Your booking is confirmed!\n\n🏢 Place: *{place_name}*\n📍 Address: {address}\n🕒 Date: {date}\n🔑 Booking number: `{reference}`",
+        "booking_cancelled": "❌ Booking cancelled.",
+        "my_bookings": "📋 *Your bookings:*\n\n{bookings_list}",
+        "no_bookings": "📋 *Your bookings:*\n\nYou don't have any bookings yet.",
+        "cancel_confirm": "❓ Are you sure you want to cancel the booking for *{place_name}* on {date}?",
+        "booking_delete_success": "✅ Booking successfully cancelled."
+    },
+    "de": {
+        "greeting": "📅 *Einen Ort für Ihr Date buchen*\n\nWählen Sie eine Aktion:",
+        "choose_city": "🌆 Geben Sie den Namen der Stadt ein, in der Sie einen Platz buchen möchten:",
+        "choose_place_type": "🏙 Ausgewählte Stadt: *{city}*\n\nWählen Sie die Art des Veranstaltungsortes:",
+        "choose_date": "📆 Ausgewählter Typ: *{place_type}*\n\nWählen Sie ein Datum für die Buchung:",
+        "enter_date": "📝 Bitte geben Sie ein Datum im Format JJJJ-MM-TT ein (zum Beispiel 2023-12-25):",
+        "select_place": "🔎 Gefundene Optionen für {city} am {date}:",
+        "no_places": "😔 Leider wurden keine Plätze gefunden. Versuchen Sie, Ihre Suchparameter zu ändern.",
+        "confirm_booking": "✅ Sie haben *{place_name}* ausgewählt\n\n📍 Adresse: {address}\n🕒 Datum: {date}\n\nBuchung bestätigen:",
+        "booking_confirmed": "🎉 Ihre Buchung ist bestätigt!\n\n🏢 Ort: *{place_name}*\n📍 Adresse: {address}\n🕒 Datum: {date}\n🔑 Buchungsnummer: `{reference}`",
+        "booking_cancelled": "❌ Buchung storнирована.",
+        "my_bookings": "📋 *Ihre Buchungen:*\n\n{bookings_list}",
+        "no_bookings": "📋 *Ihre Buchungen:*\n\nSie haben noch keine Buchungen.",
+        "cancel_confirm": "❓ Sind Sie sicher, dass Sie die Buchung für *{place_name}* am {date} stornieren möchten?",
+        "booking_delete_success": "✅ Buchung erfolgreich storniert."
+    }
+}
+
+# Вспомогательные функции для работы с локализацией
+async def get_text(key, lang, **kwargs):
+    """Получение локализованного текста с подстановкой параметров"""
+    text = texts.get(lang, texts["en"]).get(key, texts["en"][key])
+    return text.format(**kwargs) if kwargs else text
+
+async def get_user_city(telegram_id):
+    """Получение города пользователя из профиля"""
+    async for session in get_session():
+        user = await get_user_by_telegram_id(session, telegram_id)
+        return user.city if user and user.city else None
+
+# Обработчики команд и колбэков
+async def cmd_booking(message: Message, state: FSMContext):
+    """Обработчик команды бронирования - упрощенная версия"""
+    telegram_id = str(message.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    # Сбрасываем состояние FSM
+    await state.finish()
+    
+    # Проверяем, есть ли у пользователя город в профиле
+    user_city = await get_user_city(telegram_id)
+    
+    if user_city:
+        # Если город известен, сразу показываем меню выбора типа места
+        logger.info(f"Город известен: {user_city}, показываем меню типов мест")
+        message_text = await get_text("choose_place_type", lang, city=user_city)
+        await message.answer(message_text, reply_markup=place_type_keyboard(lang), parse_mode="Markdown")
+    else:
+        # Если город не известен, просим пользователя ввести город
+        await BookingStates.choosing_city.set()
+        message_text = await get_text("choose_city", lang)
+        await message.answer(message_text)
+        logger.info("Город не известен, запрашиваем у пользователя")
+
+async def process_city(message: Message, state: FSMContext):
+    """Обработчик для получения города"""
+    telegram_id = str(message.from_user.id)
+    city = message.text.strip()
+    lang = await get_user_language(telegram_id)
+    
+    # Сохраняем город в состоянии
+    await state.update_data(city=city)
+    
+    # Переходим к выбору типа места
+    await BookingStates.choosing_place_type.set()
+    
+    message_text = await get_text("choose_place_type", lang, city=city)
+    await message.answer(message_text, reply_markup=place_type_keyboard(lang), parse_mode="Markdown")
+
+async def process_place_type(call: CallbackQuery, state: FSMContext):
+    """Обработчик для выбора типа места - максимально упрощенная версия"""
+    try:
+        # Показываем пользователю, что кнопка нажата
+        await call.answer()
+        
+        telegram_id = str(call.from_user.id)
+        lang = await get_user_language(telegram_id)
+        
+        logger.info(f"process_place_type вызван с callback_data: {call.data}")
+        
+        # Получаем тип места из колбэка
+        parts = call.data.split(":")
+        if len(parts) < 3:
+            logger.error(f"Недопустимый формат callback_data: {call.data}")
+            await call.message.answer("❌ Произошла ошибка при выборе типа места. Пожалуйста, попробуйте снова.")
+            return
+        
+        place_type = parts[2]
+        logger.info(f"Выбран тип места: {place_type}, callback_data: {call.data}")
+        
+        # Локализованные названия типов мест
+        place_type_names = {
+            "ua": {"restaurant": "Ресторан", "cafe": "Кафе", "bar": "Бар", "cinema": "Кінотеатр", "event": "Подія", "park": "Парк"},
+            "ru": {"restaurant": "Ресторан", "cafe": "Кафе", "bar": "Бар", "cinema": "Кинотеатр", "event": "Событие", "park": "Парк"},
+            "en": {"restaurant": "Restaurant", "cafe": "Cafe", "bar": "Bar", "cinema": "Cinema", "event": "Event", "park": "Park"},
+            "de": {"restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "cinema": "Kino", "event": "Veranstaltung", "park": "Park"}
+        }
+        
+        # Получаем локализованное название типа места
+        place_type_dict = place_type_names.get(lang, place_type_names["en"])
+        place_type_localized = place_type_dict.get(place_type, place_type)
+        
+        # Получаем информацию о заведениях выбранного типа
+        venues = venue_info.get(place_type, [])
+        
+        # Если нет заведений, показываем сообщение "скоро будет доступно"
+        if not venues:
+            # Локализованные тексты для "скоро будет доступно"
+            coming_soon_messages = {
+                "ua": f"✅ Ви обрали: *{place_type_localized}*\n\nБронювання закладів цього типу буде доступно найближчим часом.",
+                "ru": f"✅ Вы выбрали: *{place_type_localized}*\n\nБронирование заведений этого типа будет доступно в ближайшее время.",
+                "en": f"✅ You selected: *{place_type_localized}*\n\nBooking for venues of this type will be available soon.",
+                "de": f"✅ Sie haben ausgewählt: *{place_type_localized}*\n\nBuchungen für Locations dieses Typs werden in Kürze verfügbar sein."
+            }
+            
+            message_text = coming_soon_messages.get(lang, coming_soon_messages["en"])
+            
+            # Создаем клавиатуру только с кнопкой "Назад"
+            kb = InlineKeyboardMarkup(row_width=1)
+            back_button_text = {"ua": "🔙 Назад", "ru": "🔙 Назад", "en": "🔙 Back", "de": "🔙 Zurück"}.get(lang, "🔙 Back")
+            kb.add(InlineKeyboardButton(back_button_text, callback_data="booking:back"))
+            
+            await call.message.edit_text(message_text, reply_markup=kb, parse_mode="Markdown")
+            logger.info(f"Отправлено сообщение 'скоро будет доступно' для типа места: {place_type}")
+            
+        else:
+            # Создаем клавиатуру с заведениями и кнопкой "Назад"
+            kb = InlineKeyboardMarkup(row_width=1)
+            
+            # Добавляем кнопки для каждого заведения
+            for venue in venues:
+                venue_name = venue["name"]
+                venue_url = venue["url"]
+                kb.add(InlineKeyboardButton(f"🏢 {venue_name}", url=venue_url))
+            
+            # Добавляем кнопку "Назад"
+            back_button_text = {"ua": "🔙 Назад", "ru": "🔙 Назад", "en": "🔙 Back", "de": "🔙 Zurück"}.get(lang, "🔙 Back")
+            kb.add(InlineKeyboardButton(back_button_text, callback_data="booking:back"))
+            
+            # Создаем локализованное сообщение
+            venue_list_messages = {
+                "ua": f"✅ Ви обрали: *{place_type_localized}*\n\nДоступні заклади цього типу:",
+                "ru": f"✅ Вы выбрали: *{place_type_localized}*\n\nДоступные заведения этого типа:",
+                "en": f"✅ You selected: *{place_type_localized}*\n\nAvailable venues of this type:",
+                "de": f"✅ Sie haben ausgewählt: *{place_type_localized}*\n\nVerfügbare Locations dieses Typs:"
+            }
+            
+            message_text = venue_list_messages.get(lang, venue_list_messages["en"])
+            
+            # Отправляем сообщение
+            await call.message.edit_text(message_text, reply_markup=kb, parse_mode="Markdown")
+            logger.info(f"Отправлен список заведений для типа места: {place_type}")
+        
+        # Сбрасываем состояние
+        await state.finish()
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке типа места: {e}", exc_info=True)
+        await call.message.answer("❌ Произошла ошибка. Пожалуйста, попробуйте снова позже.")
+
+async def process_date(call: CallbackQuery, state: FSMContext):
+    """Обработчик для выбора даты"""
+    try:
+        await call.answer("Загрузка...")
+        telegram_id = str(call.from_user.id)
+        lang = await get_user_language(telegram_id)
+        
+        logger.info(f"process_date вызван с callback_data: {call.data}")
+        
+        if call.data == "booking:custom_date":
+            # Если пользователь выбрал "Другая дата", просим ввести дату вручную
+            await BookingStates.entering_custom_date.set()
+            message_text = await get_text("enter_date", lang)
+            await call.message.edit_text(message_text)
+            logger.info("Пользователь выбрал ввод своей даты")
+            return
+        
+        try:
+            # Получаем дату из колбэка
+            parts = call.data.split(":")
+            if len(parts) < 3:
+                logger.error(f"Недопустимый формат callback_data для даты: {call.data}")
+                await call.message.answer("❌ Произошла ошибка при выборе даты.")
+                return
+                
+            date = parts[2]
+            logger.info(f"Выбрана дата: {date}")
+            
+            # Проверка формата даты
+            if len(date) != 10 or date[4] != '-' or date[7] != '-':
+                logger.error(f"Неверный формат даты: {date}")
+                await call.message.answer("❌ Неверный формат даты. Пожалуйста, попробуйте снова.")
+                return
+                
+            # Сохраняем дату в состоянии
+            await state.update_data(date=date)
+            logger.info(f"Дата {date} сохранена в состоянии")
+            
+            # Показываем пользователю, что мы обрабатываем запрос
+            await call.message.edit_text("🔍 Поиск подходящих мест... Пожалуйста, подождите.")
+            
+            # Переходим к просмотру мест
+            await show_places_for_booking(call, state)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке даты: {e}", exc_info=True)
+            await call.message.edit_text("❌ Произошла ошибка при обработке даты. Пожалуйста, попробуйте снова.")
+    
+    except Exception as e:
+        logger.error(f"Общая ошибка в process_date: {e}", exc_info=True)
+        await call.message.answer("❌ Произошла непредвиденная ошибка. Пожалуйста, попробуйте позже.")
+
+async def process_custom_date(message: Message, state: FSMContext):
+    """Обработчик для пользовательской даты"""
+    telegram_id = str(message.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    date = message.text.strip()
+    
+    # Проверяем формат даты (очень примитивно)
+    if len(date) != 10 or date[4] != '-' or date[7] != '-':
+        message_text = await get_text("enter_date", lang)
+        await message.answer(f"❌ Неверный формат даты. {message_text}")
+        return
+    
+    # Сохраняем дату в состоянии
+    await state.update_data(date=date)
+    
+    # Переходим к просмотру мест
+    await show_places_for_booking_message(message, state)
+
+async def show_places_for_booking(call: CallbackQuery, state: FSMContext):
+    """Показывает варианты мест для бронирования"""
+    try:
+        telegram_id = str(call.from_user.id)
+        lang = await get_user_language(telegram_id)
+        
+        # Добавляем индикатор загрузки
+        try:
+            await call.message.edit_text("🔍 Загрузка вариантов... Пожалуйста, подождите.")
+        except Exception as e:
+            logger.warning(f"Не удалось обновить сообщение с индикатором загрузки: {e}")
+        
+        # Получаем данные из состояния
+        data = await state.get_data()
+        city = data.get('city')
+        date = data.get('date')
+        place_type = data.get('place_type')
+        
+        # Проверяем наличие необходимых данных
+        if not city or not date or not place_type:
+            logger.error(f"Отсутствуют необходимые данные: city={city}, date={date}, place_type={place_type}")
+            await call.message.edit_text("❌ Не хватает данных для поиска мест. Пожалуйста, начните бронирование заново.")
+            return
+        
+        logger.info(f"Запрос мест: city={city}, date={date}, place_type={place_type}")
+        
+        # Переходим к просмотру мест
+        await BookingStates.viewing_places.set()
+        logger.info(f"Установлено состояние BookingStates.viewing_places")
+        
+        try:
+            # Получаем рекомендации мест
+            logger.info(f"Вызываем service.get_recommendations({city}, {date}, {place_type})")
+            recommendations = await service.get_recommendations(city, date, place_type)
+            logger.info(f"Получено {len(recommendations)} рекомендаций")
+            
+            # Более подробное логирование рекомендаций
+            if recommendations and len(recommendations) > 0:
+                # Выводим полный список всех типов мест
+                place_types = set([rec.get('type', 'unknown') for rec in recommendations])
+                logger.info(f"Типы мест в рекомендациях: {place_types}")
+                
+                # Проверка фильтрации по типу места
+                filtered_recs = [rec for rec in recommendations if rec.get('type') == place_type]
+                logger.info(f"После проверки фильтра по типу '{place_type}': найдено {len(filtered_recs)} мест")
+                
+                # Подробная информация о первых рекомендациях
+                logger.info(f"Первая рекомендация: {recommendations[0]}")
+                if len(recommendations) > 1:
+                    logger.info(f"Вторая рекомендация: {recommendations[1]}")
+                
+                # Проверка города в рекомендациях
+                cities_in_rec = set([rec.get('city', 'unknown') for rec in recommendations])
+                logger.info(f"Города в рекомендациях: {cities_in_rec}")
+            
+            if not recommendations:
+                logger.warning(f"Не найдено мест для: city={city}, date={date}, place_type={place_type}")
+                message_text = await get_text("no_places", lang)
+                await call.message.edit_text(message_text)
+                return
+            
+            # Сохраняем рекомендации в состоянии для дальнейшего использования
+            await state.update_data(recommendations=recommendations)
+            logger.info(f"Рекомендации сохранены в состоянии")
+            
+            # Формируем сообщение с вариантами мест
+            try:
+                message_text = await get_text("select_place", lang, city=city, date=date)
+                logger.info(f"Подготовлено сообщение: {message_text[:50]}...")
+                
+                # Создаем клавиатуру с местами
+                kb = places_keyboard(recommendations, lang)
+                logger.info(f"Создана клавиатура с {len(kb.inline_keyboard)} кнопками")
+                
+                # Отправляем сообщение с клавиатурой
+                await call.message.edit_text(
+                    text=message_text,
+                    reply_markup=kb,
+                    parse_mode="Markdown"
+                )
+                logger.info("Сообщение с вариантами мест успешно отправлено")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке сообщения с клавиатурой: {e}", exc_info=True)
+                await call.message.edit_text("❌ Не удалось отобразить варианты мест. Пожалуйста, попробуйте снова.")
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении рекомендаций: {e}", exc_info=True)
+            await call.message.edit_text(f"❌ Произошла ошибка при поиске мест: {str(e)[:100]}...")
+    
+    except Exception as e:
+        logger.error(f"Общая ошибка в show_places_for_booking: {e}", exc_info=True)
+        try:
+            await call.message.edit_text("❌ Произошла непредвиденная ошибка. Пожалуйста, начните бронирование заново.")
+        except:
+            pass
+
+async def show_places_for_booking_message(message: Message, state: FSMContext):
+    """Показывает варианты мест для бронирования (для случая с вводом текста)"""
+    telegram_id = str(message.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    # Получаем данные из состояния
+    data = await state.get_data()
+    city = data.get('city')
+    date = data.get('date')
+    place_type = data.get('place_type')
+    
+    # Переходим к просмотру мест
+    await BookingStates.viewing_places.set()
+    
+    # Добавляем логирование для отладки
+    logger.info(f"Запрос мест (сообщение): city={city}, date={date}, place_type={place_type}")
+    
+    try:
+        # Получаем рекомендации мест
+        recommendations = await service.get_recommendations(city, date, place_type)
+        logger.info(f"Получено {len(recommendations)} рекомендаций")
+        
+        if not recommendations:
+            logger.warning(f"Не найдено мест для: city={city}, date={date}, place_type={place_type}")
+            message_text = await get_text("no_places", lang)
+            await message.answer(message_text)
+            return
+    except Exception as e:
+        logger.error(f"Ошибка при получении рекомендаций: {e}")
+        await message.answer(f"❌ Произошла ошибка при поиске мест: {e}")
+        return
+    
+    # Сохраняем рекомендации в состоянии для дальнейшего использования
+    await state.update_data(recommendations=recommendations)
+    
+    message_text = await get_text("select_place", lang, city=city, date=date)
+    await message.answer(message_text, reply_markup=places_keyboard(recommendations, lang))
+
+async def select_place(call: CallbackQuery, state: FSMContext):
+    """Обработчик для выбора конкретного места"""
+    await call.answer()
+    telegram_id = str(call.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    # Получаем тип места и его ID из колбэка
+    try:
+        # Детальное логирование для отладки
+        logger.info(f"Получен callback_data: {call.data}")
+        
+        # Проверка на формат callback_data
+        if not call.data.startswith("booking:select:"):
+            logger.error(f"Неверный формат callback_data: {call.data}")
+            raise ValueError(f"Неверный формат callback_data: {call.data}")
+        
+        # Парсинг частей callback_data с запасом на случай, если данные содержат ":"
+        parts = call.data.split(":")
+        if len(parts) < 4:
+            logger.error(f"Недостаточно частей в callback_data: {call.data}, parts={parts}")
+            raise ValueError(f"Недостаточно частей в callback_data: {call.data}")
+        
+        # Получаем тип и ID места
+        place_type = parts[2]
+        place_id = parts[3]
+        
+        logger.info(f"select_place вызван с callback_data={call.data}, place_type={place_type}, place_id={place_id}")
+    except Exception as e:
+        logger.error(f"Ошибка при разборе callback_data: {e}, callback_data={call.data}", exc_info=True)
+        await call.message.edit_text("❌ Произошла ошибка при выборе места. Пожалуйста, начните бронирование заново.")
+        await state.finish()
+        return
+    
+    # Получаем данные из состояния
+    data = await state.get_data()
+    recommendations = data.get('recommendations', [])
+    logger.info(f"Получено {len(recommendations)} рекомендаций из состояния")
+    date = data.get('date')
+    
+    # Находим выбранное место в рекомендациях
+    selected_place = None
+    for rec in recommendations:
+        try:
+            rec_type = rec.get('type', '')
+            rec_id = str(rec.get('id', ''))
+            logger.info(f"Сравниваем: место из рекомендаций {rec_type}:{rec_id} с выбранным {place_type}:{place_id}")
+            
+            # Проверяем начало ID, так как мы могли его обрезать в клавиатуре
+            if rec_type == place_type and rec_id.startswith(place_id) or place_id.startswith(rec_id):
+                selected_place = rec
+                logger.info(f"Найдено соответствующее место: {rec}")
+                break
+        except Exception as e:
+            logger.error(f"Ошибка при проверке рекомендации: {e}, rec={rec}")
+    
+    if not selected_place:
+        # Если место не найдено в рекомендациях, попробуем создать его на основе имеющихся данных
+        logger.warning(f"Место не найдено в рекомендациях: {place_type}:{place_id}")
+        
+        # Пытаемся восстановить место из минимальной информации
+        try:
+            # Возьмем дату из состояния
+            date_str = data.get('date', datetime.now().strftime("%Y-%m-%d"))
+            city = data.get('city', 'Неизвестный город')
+            
+            # Создаем минимальную информацию о месте
+            selected_place = {
+                'id': place_id,
+                'type': place_type,
+                'name': f"Место {place_id}",
+                'address': f"{city}, адрес неизвестен",
+                'time': f"{date_str}T12:00:00",
+                'city': city
+            }
+            
+            logger.info(f"Создано место из минимальной информации: {selected_place}")
+        except Exception as e:
+            logger.error(f"Ошибка при создании места из минимальной информации: {e}", exc_info=True)
+            await call.message.edit_text("❌ Произошла ошибка при выборе места. Пожалуйста, начните бронирование заново.")
+            await state.finish()
+            return
+    
+    try:
+        # Сохраняем выбранное место в состоянии
+        await state.update_data(selected_place=selected_place)
+        logger.info(f"Сохранено место в состоянии: {selected_place}")
+        
+        # Переходим к подтверждению бронирования
+        await BookingStates.confirming_booking.set()
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении места и переходе к подтверждению: {e}", exc_info=True)
+        await call.message.edit_text("❌ Произошла ошибка. Пожалуйста, попробуйте позже.")
+        await state.finish()
+        return
+    
+    # Форматируем дату для отображения
+    try:
+        display_date = date
+        
+        # Проверка наличия времени в формате ISO
+        time_str = selected_place.get('time', '')
+        if isinstance(time_str, str) and "T" in time_str:
+            try:
+                # Парсим дату в ISO формате
+                dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+                display_date = dt.strftime("%d.%m.%Y %H:%M")
+                logger.info(f"Успешно отформатирована дата: {display_date}")
+            except Exception as e:
+                logger.error(f"Ошибка при форматировании времени: {e}, time_str={time_str}")
+                
+                # Упрощенный парсинг даты и времени
+                time_parts = time_str.split("T")
+                if len(time_parts) > 1:
+                    date_part = time_parts[0]
+                    time_part = time_parts[1].split("+")[0]  # Удаляем часовой пояс
+                    
+                    # Форматируем только время (часы:минуты)
+                    time_parts = time_part.split(":")
+                    if len(time_parts) >= 2:
+                        time_only = f"{time_parts[0]}:{time_parts[1]}"
+                        display_date = f"{date_part} {time_only}"
+        
+        logger.info(f"Отформатированная дата/время: {display_date}")
+    except Exception as e:
+        logger.error(f"Ошибка при форматировании даты: {e}", exc_info=True)
+        display_date = str(date)
+    
+    # Отображаем информацию о выбранном месте и предлагаем подтвердить бронирование
+    message_text = await get_text(
+        "confirm_booking", 
+        lang, 
+        place_name=selected_place['name'],
+        address=selected_place.get('address', 'Нет данных'),
+        date=display_date
+    )
+    
+    # Получаем match_id если он есть в данных состояния
+    match_id = data.get('match_id')
+    
+    await call.message.edit_text(
+        message_text, 
+        reply_markup=confirm_keyboard(selected_place, lang, match_id),
+        parse_mode="Markdown"
+    )
+
+async def confirm_booking(call: CallbackQuery, state: FSMContext):
+    """Обработчик для подтверждения бронирования"""
+    await call.answer("Бронирование…")
+    telegram_id = str(call.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    logger.info(f"confirm_booking вызван с callback_data={call.data}")
+    
+    # Разбираем данные колбэка
+    try:
+        parts = call.data.split(":")
+        
+        # Проверка формата callback_data
+        if len(parts) < 4 or not call.data.startswith("booking:confirm:"):
+            logger.error(f"Неверный формат callback_data: {call.data}")
+            raise ValueError(f"Неверный формат callback_data: {call.data}")
+        
+        # place_type, place_id и опционально match_id
+        place_type = parts[2]
+        place_id = parts[3]
+        
+        # Осторожный парсинг match_id
+        match_id = None
+        if len(parts) > 4:
+            try:
+                match_id = int(parts[4])
+            except ValueError:
+                logger.warning(f"Не удалось преобразовать match_id '{parts[4]}' в число")
+        
+        logger.info(f"Parsed data - place_type: {place_type}, place_id: {place_id}, match_id: {match_id}")
+    except Exception as e:
+        logger.error(f"Ошибка при разборе callback_data: {e}", exc_info=True)
+        await call.message.edit_text("❌ Произошла ошибка при подтверждении бронирования. Пожалуйста, попробуйте снова.")
+        await state.finish()
+        return
+    
+    # Получаем данные из состояния
+    data = await state.get_data()
+    selected_place = data.get('selected_place')
+    city = data.get('city')
+    date = data.get('date')
+    
+    if not selected_place:
+        await call.message.edit_text("❌ Произошла ошибка. Пожалуйста, начните бронирование заново.")
+        await state.finish()
+        return
+    
+    # Создаем бронирование
+    try:
+        # Получаем данные пользователя для передачи в API
+        async for session in get_session():
+            user = await get_user_by_telegram_id(session, telegram_id)
+            user_name = f"{user.first_name}" if user else f"User {telegram_id}"
+            
+            # Добавляем город в данные места, если его нет
+            if 'city' not in selected_place:
+                selected_place['city'] = city
+                
+            # Создаем бронирование
+            new_res = await service.create_reservation(
+                session, 
+                user.id if user else int(telegram_id), 
+                match_id, 
+                selected_place,
+                user_name
+            )
+            await session.commit()
+            
+            # Форматируем дату для отображения
+            display_date = date
+            if "T" in selected_place['time']:
+                try:
+                    dt = datetime.fromisoformat(selected_place['time'].replace("Z", "+00:00"))
+                    display_date = dt.strftime("%d.%m.%Y %H:%M")
+                except:
+                    pass
+            
+            # Отображаем подтверждение бронирования
+            message_text = await get_text(
+                "booking_confirmed", 
+                lang, 
+                place_name=selected_place['name'],
+                address=selected_place.get('address', 'Нет данных'),
+                date=display_date,
+                reference=new_res.external_reference
+            )
+            
+            await call.message.edit_text(message_text, parse_mode="Markdown")
+            
+            # Сбрасываем состояние
+            await state.finish()
+            
+    except Exception as e:
+        logger.error(f"Ошибка при создании бронирования: {e}")
+        await call.message.edit_text(f"❌ Произошла ошибка при бронировании. Пожалуйста, попробуйте позже.")
+        await state.finish()
+
+async def my_bookings(call: CallbackQuery):
+    """Обработчик для просмотра своих бронирований"""
+    await call.answer()
+    telegram_id = str(call.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    try:
+        async for session in get_session():
+            user = await get_user_by_telegram_id(session, telegram_id)
+            
+            if not user:
+                await call.message.edit_text("❌ Пользователь не найден.")
+                return
+            
+            # Получаем бронирования пользователя
+            reservations = await service.get_user_reservations(session, user.id)
+            
+            if not reservations:
+                message_text = await get_text("no_bookings", lang)
+                await call.message.edit_text(message_text, parse_mode="Markdown")
+                return
+            
+            # Формируем список бронирований
+            bookings_list = []
+            for reservation, place in reservations:
+                if reservation.status == "cancelled":
+                    continue
+                    
+                # Форматируем дату для отображения
+                display_date = "неизвестно"
+                if reservation.reservation_time:
+                    try:
+                        dt = datetime.fromisoformat(str(reservation.reservation_time).replace("Z", "+00:00"))
+                        display_date = dt.strftime("%d.%m.%Y %H:%M")
+                    except:
+                        pass
+                
+                booking_text = f"🏢 *{place.name}*\n"
+                booking_text += f"📅 {display_date}\n"
+                booking_text += f"🔑 `{reservation.external_reference}`\n"
+                booking_text += f"📍 {place.city or 'Город не указан'}\n\n"
+                
+                bookings_list.append(booking_text)
+            
+            # Объединяем все бронирования в одно сообщение
+            message_text = await get_text("my_bookings", lang, bookings_list="".join(bookings_list))
+            
+            # Показываем бронирования с клавиатурой для управления
+            await call.message.edit_text(
+                message_text, 
+                reply_markup=my_bookings_keyboard(reservations, lang),
+                parse_mode="Markdown"
+            )
+    
+    except Exception as e:
+        logger.error(f"Ошибка при получении бронирований: {e}")
+        await call.message.edit_text("❌ Произошла ошибка при получении бронирований.")
+
+async def cancel_reservation(call: CallbackQuery):
+    """Обработчик для отмены бронирования"""
+    await call.answer()
+    telegram_id = str(call.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    # Получаем ID бронирования из колбэка
+    _, _, reservation_id = call.data.split(":")
+    
+    try:
+        async for session in get_session():
+            user = await get_user_by_telegram_id(session, telegram_id)
+            
+            if not user:
+                await call.message.edit_text("❌ Пользователь не найден.")
+                return
+            
+            # Отменяем бронирование
+            cancelled = await service.cancel_reservation(session, int(reservation_id), user.id)
+            await session.commit()
+            
+            if not cancelled:
+                await call.message.edit_text("❌ Бронирование не найдено или уже отменено.")
+                return
+            
+            # Возвращаемся к списку бронирований
+            await my_bookings(call)
+    
+    except Exception as e:
+        logger.error(f"Ошибка при отмене бронирования: {e}")
+        await call.message.edit_text("❌ Произошла ошибка при отмене бронирования.")
+
+async def cancel_booking(call: CallbackQuery, state: FSMContext):
+    """Обработчик для отмены процесса бронирования"""
+    await call.answer()
+    telegram_id = str(call.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    message_text = await get_text("booking_cancelled", lang)
+    await call.message.edit_text(message_text)
+    
+    # Сбрасываем состояние
+    await state.finish()
+
+async def back_to_menu(call: CallbackQuery, state: FSMContext):
+    """Обработчик для возврата в меню бронирования"""
+    await call.answer()
+    telegram_id = str(call.from_user.id)
+    lang = await get_user_language(telegram_id)
+    
+    # Сбрасываем состояние
+    await state.finish()
+    
+    # Проверяем, есть ли у пользователя город в профиле
+    user_city = await get_user_city(telegram_id)
+    
+    if user_city:
+        # Если город известен, показываем меню выбора типа места
+        message_text = await get_text("choose_place_type", lang, city=user_city)
+        await call.message.edit_text(message_text, reply_markup=place_type_keyboard(lang), parse_mode="Markdown")
+    else:
+        # Если город не известен, показываем приветствие
+        message_text = await get_text("greeting", lang)
+        await call.message.edit_text(message_text, reply_markup=booking_menu_keyboard(lang), parse_mode="Markdown")
+    
+    logger.info(f"Пользователь вернулся в меню бронирования")
+
+def register_booking_handlers(dp: Dispatcher):
+    """Регистрация обработчиков для бронирования"""
+    # Команды для входа в меню бронирования
+    dp.register_message_handler(
+        cmd_booking, 
+        lambda m: any(word in m.text for word in ["📅 Бронювання", "📅 Бронирование", "📅 Booking", "📅 Buchung"]),
+        state="*"
+    )
+    
+    # Обработчики для выбора города
+    dp.register_message_handler(process_city, state=BookingStates.choosing_city)
+    
+    # Обработчики для выбора типа места
+    dp.register_callback_query_handler(
+        process_place_type, 
+        lambda c: c.data.startswith("booking:type:"), 
+        state="*"
+    )
+    
+    # Служебные колбэки
+    dp.register_callback_query_handler(
+        back_to_menu, 
+        lambda c: c.data == "booking:back", 
+        state="*"
+    )

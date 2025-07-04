@@ -1,48 +1,38 @@
 # app/booking/keyboards.py
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from datetime import datetime, timedelta
+import logging
+import sys
+
+# Improved logging configuration
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Add file handler with UTF-8 encoding
+try:
+    file_handler = logging.FileHandler('keyboards.log', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+except Exception as e:
+    print(f"Failed to set up file logger for keyboards.py: {e}")
+    
+logger.info("Keyboards module loaded")
 
 def booking_menu_keyboard(lang="ru"):
     """Клавиатура основного меню бронирования с учетом языка пользователя"""
     texts = {
-        "ua": {"show": "🔍 Показати варіанти", "my": "📋 Мої бронювання", "cancel": "❌ Скасувати"},
-        "ru": {"show": "🔍 Показать варианты", "my": "📋 Мои бронирования", "cancel": "❌ Отмена"},
-        "en": {"show": "🔍 Show options", "my": "📋 My bookings", "cancel": "❌ Cancel"},
-        "de": {"show": "🔍 Optionen anzeigen", "my": "📋 Meine Buchungen", "cancel": "❌ Abbrechen"}
+        "ua": {"show": "🔍 Показати варіанти", "cancel": "❌ Скасувати"},
+        "ru": {"show": "🔍 Показать варианты", "cancel": "❌ Отмена"},
+        "en": {"show": "🔍 Show options", "cancel": "❌ Cancel"},
+        "de": {"show": "🔍 Optionen anzeigen", "cancel": "❌ Abbrechen"}
     }
     
     t = texts.get(lang, texts["en"])
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton(t["show"], callback_data="booking:show"),
-        InlineKeyboardButton(t["my"], callback_data="booking:my_bookings")
-    )
-    kb.add(InlineKeyboardButton(t["cancel"], callback_data="booking:cancel"))
-    return kb
-
-def date_keyboard(lang="ru"):
-    """Клавиатура для выбора даты"""
-    texts = {
-        "ua": {"today": "🔹 Сьогодні", "tomorrow": "🔸 Завтра", "other": "📆 Інша дата", "cancel": "🔙 Назад"},
-        "ru": {"today": "🔹 Сегодня", "tomorrow": "🔸 Завтра", "other": "📆 Другая дата", "cancel": "🔙 Назад"},
-        "en": {"today": "🔹 Today", "tomorrow": "🔸 Tomorrow", "other": "📆 Other date", "cancel": "🔙 Back"},
-        "de": {"today": "🔹 Heute", "tomorrow": "🔸 Morgen", "other": "📆 Anderes Datum", "cancel": "🔙 Zurück"}
-    }
-    
-    t = texts.get(lang, texts["en"])
-    today = datetime.now().strftime("%Y-%m-%d")
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    day_after = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-    
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton(t["today"], callback_data=f"booking:date:{today}"),
-        InlineKeyboardButton(t["tomorrow"], callback_data=f"booking:date:{tomorrow}")
-    )
-    kb.add(
-        InlineKeyboardButton(f"📅 {day_after}", callback_data=f"booking:date:{day_after}"),
-        InlineKeyboardButton(t["other"], callback_data="booking:custom_date")
+        InlineKeyboardButton(t["show"], callback_data="booking:show")
     )
     kb.add(InlineKeyboardButton(t["cancel"], callback_data="booking:cancel"))
     return kb
@@ -52,19 +42,19 @@ def place_type_keyboard(lang="ru"):
     texts = {
         "ua": {
             "restaurant": "🍽 Ресторан", "cafe": "☕️ Кафе", "bar": "🍸 Бар",
-            "cinema": "🎬 Кінотеатр", "event": "🎭 Подія", "back": "🔙 Назад"
+            "cinema": "🎬 Кінотеатр", "event": "🎭 Подія", "park": "🌳 Парк", "back": "🔙 Назад"
         },
         "ru": {
             "restaurant": "🍽 Ресторан", "cafe": "☕️ Кафе", "bar": "🍸 Бар",
-            "cinema": "🎬 Кинотеатр", "event": "🎭 Событие", "back": "🔙 Назад"
+            "cinema": "🎬 Кинотеатр", "event": "🎭 Событие", "park": "🌳 Парк", "back": "🔙 Назад"
         },
         "en": {
             "restaurant": "🍽 Restaurant", "cafe": "☕️ Cafe", "bar": "🍸 Bar",
-            "cinema": "🎬 Cinema", "event": "🎭 Event", "back": "🔙 Back"
+            "cinema": "🎬 Cinema", "event": "🎭 Event", "park": "🌳 Park", "back": "🔙 Back"
         },
         "de": {
             "restaurant": "🍽 Restaurant", "cafe": "☕️ Café", "bar": "🍸 Bar",
-            "cinema": "🎬 Kino", "event": "🎭 Veranstaltung", "back": "🔙 Zurück"
+            "cinema": "🎬 Kino", "event": "🎭 Veranstaltung", "park": "🌳 Park", "back": "🔙 Zurück"
         }
     }
     
@@ -78,94 +68,144 @@ def place_type_keyboard(lang="ru"):
         InlineKeyboardButton(t["bar"], callback_data="booking:type:bar"),
         InlineKeyboardButton(t["cinema"], callback_data="booking:type:cinema")
     )
-    kb.add(InlineKeyboardButton(t["event"], callback_data="booking:type:event"))
-    kb.add(InlineKeyboardButton(t["back"], callback_data="booking:back"))
-    return kb
-
-def places_keyboard(recommendations: list, lang="ru"):
-    """Клавиатура для выбора конкретного места из списка рекомендаций"""
-    texts = {
-        "ua": {"back": "🔙 Назад", "more": "🔄 Більше варіантів"},
-        "ru": {"back": "🔙 Назад", "more": "🔄 Больше вариантов"},
-        "en": {"back": "🔙 Back", "more": "🔄 More options"},
-        "de": {"back": "🔙 Zurück", "more": "🔄 Weitere Optionen"}
-    }
-    
-    t = texts.get(lang, texts["en"])
-    kb = InlineKeyboardMarkup(row_width=1)
-    
-    for i, rec in enumerate(recommendations[:5]):  # Ограничиваем количество кнопок
-        # Форматируем время для отображения
-        time_str = rec['time']
-        if isinstance(time_str, str) and "T" in time_str:
-            try:
-                dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-                time_str = dt.strftime("%d.%m %H:%M")
-            except:
-                pass
-                
-        # Формируем название места и дату
-        label = f"{rec['name']} — {time_str}"
-        data = f"booking:select:{rec['type']}:{rec['id']}"
-        kb.add(InlineKeyboardButton(label, callback_data=data))
-        
-    if len(recommendations) > 5:
-        kb.add(InlineKeyboardButton(t["more"], callback_data="booking:more"))
-        
-    kb.add(InlineKeyboardButton(t["back"], callback_data="booking:back"))
-    return kb
-
-def confirm_keyboard(rec: dict, lang="ru", match_id=None):
-    """Клавиатура для подтверждения бронирования"""
-    texts = {
-        "ua": {"confirm": "✅ Підтвердити", "cancel": "❌ Скасувати"},
-        "ru": {"confirm": "✅ Подтвердить", "cancel": "❌ Отмена"},
-        "en": {"confirm": "✅ Confirm", "cancel": "❌ Cancel"},
-        "de": {"confirm": "✅ Bestätigen", "cancel": "❌ Abbrechen"}
-    }
-    
-    t = texts.get(lang, texts["en"])
-    kb = InlineKeyboardMarkup(row_width=2)
-    
-    # Добавляем ID матча, если он есть
-    callback_data = f"booking:confirm:{rec['type']}:{rec['id']}"
-    if match_id:
-        callback_data += f":{match_id}"
-    
     kb.add(
-        InlineKeyboardButton(t["confirm"], callback_data=callback_data),
-        InlineKeyboardButton(t["cancel"], callback_data="booking:cancel")
+        InlineKeyboardButton(t["event"], callback_data="booking:type:event"),
+        InlineKeyboardButton(t["park"], callback_data="booking:type:park")
     )
+    kb.add(InlineKeyboardButton(t["back"], callback_data="booking:back"))
     return kb
 
-def my_bookings_keyboard(reservations, lang="ru"):
-    """Клавиатура для просмотра и управления бронированиями пользователя"""
+def back_button_keyboard(lang="ru"):
+    """Клавиатура с одной кнопкой 'Назад'"""
     texts = {
-        "ua": {"cancel_booking": "❌ Скасувати", "back": "🔙 Назад"},
-        "ru": {"cancel_booking": "❌ Отменить", "back": "🔙 Назад"},
-        "en": {"cancel_booking": "❌ Cancel booking", "back": "🔙 Back"},
-        "de": {"cancel_booking": "❌ Buchung stornieren", "back": "🔙 Zurück"}
+        "ua": {"back": "🔙 Назад"},
+        "ru": {"back": "🔙 Назад"},
+        "en": {"back": "🔙 Back"},
+        "de": {"back": "🔙 Zurück"}
     }
     
     t = texts.get(lang, texts["en"])
-    kb = InlineKeyboardMarkup(row_width=2)
-    
-    for reservation, place in reservations:
-        if reservation.status != "cancelled":
-            # Форматируем дату для отображения
-            time_str = "неизвестно"
-            if reservation.reservation_time:
-                try:
-                    dt = datetime.fromisoformat(str(reservation.reservation_time).replace("Z", "+00:00"))
-                    time_str = dt.strftime("%d.%m.%Y %H:%M")
-                except:
-                    pass
-            
-            label = f"{place.name} - {time_str}"
-            kb.add(
-                InlineKeyboardButton(label, callback_data=f"booking:view:{reservation.id}"),
-                InlineKeyboardButton(t["cancel_booking"], callback_data=f"booking:cancel_reservation:{reservation.id}")
-            )
-    
+    kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton(t["back"], callback_data="booking:back"))
     return kb
+
+async def create_place_type_keyboard(place_types):
+    """Create keyboard with place types based on available types from database
+    with improved error handling and safety checks"""
+    try:
+        kb = InlineKeyboardMarkup(row_width=2)
+        
+        # Validate place_types
+        if not place_types:
+            logger.warning("Empty place_types list provided to create_place_type_keyboard")
+            # Create default buttons if no place types provided
+            default_types = [("Restaurant", "restaurant"), ("Cafe", "cafe"), ("Bar", "bar")]
+            kb.add(InlineKeyboardButton("Restaurant", callback_data="place_type:restaurant"))
+            kb.add(InlineKeyboardButton("Cafe", callback_data="place_type:cafe"))
+            kb.add(InlineKeyboardButton("Bar", callback_data="place_type:bar"))
+        else:
+            # Add buttons for each place type
+            for i in range(0, len(place_types), 2):
+                row = []
+                try:
+                    place_type = place_types[i]
+                    if hasattr(place_type, 'name') and place_type.name:
+                        button_text = f"{place_type.name}"
+                        callback_value = place_type.name.lower()
+                    else:
+                        button_text = str(place_type)
+                        callback_value = str(place_type).lower()
+                        
+                    row.append(InlineKeyboardButton(
+                        button_text, 
+                        callback_data=f"place_type:{callback_value}"
+                    ))
+                    
+                    # Add second button in row if available
+                    if i + 1 < len(place_types):
+                        place_type2 = place_types[i + 1]
+                        if hasattr(place_type2, 'name') and place_type2.name:
+                            button_text = f"{place_type2.name}"
+                            callback_value = place_type2.name.lower()
+                        else:
+                            button_text = str(place_type2)
+                            callback_value = str(place_type2).lower()
+                            
+                        row.append(InlineKeyboardButton(
+                            button_text, 
+                            callback_data=f"place_type:{callback_value}"
+                        ))
+                    
+                    kb.row(*row)
+                except Exception as e:
+                    logger.error(f"Error adding button at index {i}: {e}")
+                    # Continue adding other buttons
+        
+        # Add back button - always include this
+        kb.add(InlineKeyboardButton("🔙 Back", callback_data="booking:back_to_city"))
+        
+        return kb
+    except Exception as e:
+        logger.error(f"Error in create_place_type_keyboard: {e}")
+        # Fallback to a minimal keyboard
+        try:
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("Restaurant", callback_data="place_type:restaurant"))
+            kb.add(InlineKeyboardButton("🔙 Back", callback_data="booking:back_to_city"))
+            return kb
+        except:
+            # Last resort empty keyboard
+            return InlineKeyboardMarkup()
+
+async def create_place_keyboard(places):
+    """Create keyboard with places from database
+    Works with both SQLAlchemy models and dictionaries from VenueService"""
+    try:
+        kb = InlineKeyboardMarkup(row_width=1)
+        
+        # Log the incoming data for debugging
+        logger.info(f"Creating venue keyboard with {len(places)} places")
+        logger.debug(f"First place object type: {type(places[0] if places else None)}")
+        
+        # Process each place with careful error handling
+        for i, place in enumerate(places):
+            try:
+                # Check if place is a dictionary (from VenueService) or a model
+                if isinstance(place, dict):
+                    place_name = place.get("name", "Unknown place")
+                    place_id = place.get("id", 0)
+                    logger.debug(f"Place {i+1} (dict): name={place_name}, id={place_id}")
+                else:
+                    # Assume it's a SQLAlchemy model
+                    place_name = getattr(place, 'name', "Unknown place") 
+                    place_id = getattr(place, 'id', 0)
+                    logger.debug(f"Place {i+1} (model): name={place_name}, id={place_id}")
+                
+                # Add button for the place
+                kb.add(InlineKeyboardButton(
+                    f"{place_name}", 
+                    callback_data=f"place:{place_id}"
+                ))
+            except Exception as e:
+                logger.error(f"Error processing place at index {i}: {e}")
+                # Add a placeholder button if we can't process this place
+                kb.add(InlineKeyboardButton(
+                    f"Place Option {i+1}", 
+                    callback_data=f"place:{i+1}"
+                ))
+        
+        # Add back button
+        kb.add(InlineKeyboardButton("🔙 Back", callback_data="booking:back_to_place_type"))
+        
+        logger.info(f"Venue keyboard created with {len(kb.inline_keyboard)} rows")
+        return kb
+    except Exception as e:
+        logger.error(f"Error creating venue keyboard: {e}")
+        # Create a basic fallback keyboard
+        try:
+            kb = InlineKeyboardMarkup(row_width=1)
+            kb.add(InlineKeyboardButton("🔙 Back", callback_data="booking:back_to_place_type"))
+            return kb
+        except:
+            # Last resort empty keyboard
+            return InlineKeyboardMarkup()

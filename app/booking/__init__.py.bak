@@ -1,7 +1,7 @@
 # app/booking/__init__.py
 
-# Import from unified handler - this is the single source of truth
-from app.booking.unified_handler import register_booking_handlers
+# Импорт из нового файла обработчиков вместо handlers_fixed.py
+from app.booking.new_handlers import register_booking_handlers
 from app.booking.models import Place, Reservation, PlaceType, AdminMessage  # Add AdminMessage model
 from app.booking.services_db import VenueService
 from app.booking.services_admin_message import AdminMessageService  # Add AdminMessageService

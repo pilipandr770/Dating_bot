@@ -1,20 +1,18 @@
 # app/booking/services.py
 
-import httpx
-import os
 import logging
-from datetime import datetime, timedelta
-from sqlalchemy import select, and_, or_
-from app.booking.models import Place, Reservation, PlaceType
-from app.config import get_config
+from datetime import datetime
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]  # Всегда добавляем вывод в консоль
+)
 logger = logging.getLogger(__name__)
 
-# Получаем конфигурацию из переменных среды
-OPENTABLE_API_KEY = get_config("OPENTABLE_API_KEY", "")
-EVENTBRITE_TOKEN = get_config("EVENTBRITE_TOKEN", "")
+# Тестовый вывод для проверки логирования
+logger.info("Simplified booking services loaded - logging is working")
 
 class OpenTableAdapter:
     BASE_URL = "https://api.opentable.com"
@@ -212,6 +210,31 @@ class BookingService:
 
     async def get_recommendations(self, city: str, date: str, place_type: str = None):
         """Получение рекомендаций по местам для встречи"""
+        # Подробное логирование входных параметров
+        logger.info(f"get_recommendations вызван с параметрами: city='{city}', date='{date}', place_type='{place_type}'")
+        
+        # Проверка, не пустой ли город или дата
+        if not city or not city.strip() or not date or not date.strip():
+            logger.warning(f"Пустой город или дата: city='{city}', date='{date}'")
+            return []
+            
+        # Нормализуем значения
+        city = city.strip()
+        date = date.strip()
+        
+        # Проверка формата даты
+        try:
+            # Пытаемся распарсить дату если она в формате ГГГГ-ММ-ДД
+            if date and len(date) == 10 and date[4] == '-' and date[7] == '-':
+                datetime.strptime(date, "%Y-%m-%d")
+            else:
+                # Если дата не в правильном формате, используем текущую дату
+                date = datetime.now().strftime("%Y-%m-%d")
+                logger.warning(f"Дата имеет неверный формат, используем текущую дату: {date}")
+        except Exception as e:
+            logger.error(f"Ошибка при парсинге даты '{date}': {e}")
+            date = datetime.now().strftime("%Y-%m-%d")
+        
         # Получаем рестораны и события и объединяем
         recommendations = []
         
@@ -224,14 +247,18 @@ class BookingService:
                 if isinstance(available_time, list) and len(available_time) > 0:
                     available_time = available_time[0]
                 
+                # Используем выбранный тип, если он указан, иначе "restaurant"
+                item_type = place_type if place_type in ['restaurant', 'cafe', 'bar'] else "restaurant"
+                
                 recommendations.append({
-                    "type": "restaurant",
+                    "type": item_type,
                     "id": r.get("id"),
                     "name": r.get("name"),
                     "address": r.get("address", ""),
                     "image": r.get("image_url", ""),
                     "time": f"{date}T{available_time}",
-                    "price_range": r.get("price_range", "")
+                    "price_range": r.get("price_range", ""),
+                    "city": city
                 })
                 
         # Если тип места - событие, концерт или другой тип развлечения, ищем в Eventbrite
@@ -239,15 +266,194 @@ class BookingService:
             events = await self.eventbrite.search_events(city, date)
             for e in events:
                 start_time = e.get("start", {}).get("local", f"{date}T19:00:00")
+                # Используем выбранный тип, если он указан, иначе "event"
+                item_type = place_type if place_type in ['event', 'cinema', 'other'] else "event"
+                
                 recommendations.append({
-                    "type": "event",
+                    "type": item_type,
                     "id": e.get("id"),
                     "name": e.get("name", {}).get("text", "Мероприятие"),
                     "address": e.get("venue", {}).get("address", {}).get("localized_address_display", ""),
                     "image": e.get("logo", {}).get("url", ""),
                     "time": start_time,
-                    "price": e.get("ticket_price", "")
+                    "price": e.get("ticket_price", ""),
+                    "city": city
                 })
+                
+        # Добавляем демо-данные для типов мест
+        
+        # Парки
+        if place_type in ['park'] or not place_type:
+            recommendations.append({
+                "type": "park",
+                "id": f"park-1-{city.lower().replace(' ', '-')}",
+                "name": f"Центральный парк {city}",
+                "address": f"{city}, Парковая аллея, 1",
+                "image": "https://example.com/parks/central.jpg",
+                "time": f"{date}T10:00:00",
+                "city": city
+            })
+            recommendations.append({
+                "type": "park",
+                "id": f"park-2-{city.lower().replace(' ', '-')}",
+                "name": f"Ботанический сад {city}",
+                "address": f"{city}, Ботаническая ул., 15",
+                "image": "https://example.com/parks/botanical.jpg",
+                "time": f"{date}T09:00:00",
+                "city": city
+            })
+        
+        # Кафе
+        if place_type in ['cafe'] or not place_type:
+            recommendations.append({
+                "type": "cafe",
+                "id": f"cafe-1-{city.lower().replace(' ', '-')}",
+                "name": f"Уютное кафе '{city} Coffee'",
+                "address": f"{city}, ул. Кофейная, 5",
+                "image": "https://example.com/cafes/cozy.jpg",
+                "time": f"{date}T10:00:00",
+                "price_range": "€€",
+                "city": city
+            })
+            recommendations.append({
+                "type": "cafe",
+                "id": f"cafe-2-{city.lower().replace(' ', '-')}",
+                "name": f"Арт-кафе в {city}",
+                "address": f"{city}, Творческий переулок, 12",
+                "image": "https://example.com/cafes/art.jpg",
+                "time": f"{date}T12:00:00",
+                "price_range": "€",
+                "city": city
+            })
+        
+        # Бары
+        if place_type in ['bar'] or not place_type:
+            recommendations.append({
+                "type": "bar",
+                "id": f"bar-1-{city.lower().replace(' ', '-')}",
+                "name": f"Коктейль-бар '{city} Mix'",
+                "address": f"{city}, пр. Бармена, 20",
+                "image": "https://example.com/bars/cocktail.jpg",
+                "time": f"{date}T20:00:00",
+                "price_range": "€€€",
+                "city": city
+            })
+            recommendations.append({
+                "type": "bar",
+                "id": f"bar-2-{city.lower().replace(' ', '-')}",
+                "name": f"Винный бар в {city}",
+                "address": f"{city}, ул. Виноделов, 8",
+                "image": "https://example.com/bars/wine.jpg",
+                "time": f"{date}T19:00:00",
+                "price_range": "€€€€",
+                "city": city
+            })
+            
+        # Кинотеатры
+        if place_type in ['cinema'] or not place_type:
+            recommendations.append({
+                "type": "cinema",
+                "id": f"cinema-1-{city.lower().replace(' ', '-')}",
+                "name": f"Кинотеатр '{city} Cinema'",
+                "address": f"{city}, пр. Кино, 15",
+                "image": "https://example.com/cinemas/city_cinema.jpg",
+                "time": f"{date}T18:30:00",
+                "price": "€12",
+                "city": city
+            })
+            recommendations.append({
+                "type": "cinema",
+                "id": f"cinema-2-{city.lower().replace(' ', '-')}",
+                "name": f"IMAX {city}",
+                "address": f"{city}, Технологический бульвар, 30",
+                "image": "https://example.com/cinemas/imax.jpg",
+                "time": f"{date}T20:15:00",
+                "price": "€15",
+                "city": city
+            })
+        
+        # Проверяем, есть ли вообще места
+        if len(recommendations) == 0:
+            # Если нет результатов, добавляем специальные тестовые данные для выбранного типа
+            logger.warning(f"Нет результатов для города {city}, создаем тестовые данные для типа {place_type}")
+            if place_type == "restaurant" or not place_type:
+                recommendations.append({
+                    "type": "restaurant",
+                    "id": f"test-rest-1-{city.lower().replace(' ', '-')}",
+                    "name": f"Тестовый ресторан в {city}",
+                    "address": f"{city}, Центральная улица, 1",
+                    "image": "https://example.com/restaurant-test.jpg",
+                    "time": f"{date}T19:00:00",
+                    "price_range": "€€",
+                    "city": city
+                })
+            if place_type == "cafe" or not place_type:
+                recommendations.append({
+                    "type": "cafe",
+                    "id": f"test-cafe-1-{city.lower().replace(' ', '-')}",
+                    "name": f"Тестовое кафе в {city}",
+                    "address": f"{city}, Кофейная улица, 5",
+                    "image": "https://example.com/cafe-test.jpg",
+                    "time": f"{date}T14:00:00",
+                    "price_range": "€",
+                    "city": city
+                })
+            if place_type == "bar" or not place_type:
+                recommendations.append({
+                    "type": "bar",
+                    "id": f"test-bar-1-{city.lower().replace(' ', '-')}",
+                    "name": f"Тестовый бар в {city}",
+                    "address": f"{city}, ул. Коктейльная, 10",
+                    "image": "https://example.com/bar-test.jpg",
+                    "time": f"{date}T20:00:00",
+                    "price_range": "€€",
+                    "city": city
+                })
+            if place_type == "cinema" or not place_type:
+                recommendations.append({
+                    "type": "cinema",
+                    "id": f"test-cinema-1-{city.lower().replace(' ', '-')}",
+                    "name": f"Тестовый кинотеатр {city}",
+                    "address": f"{city}, Киноплощадь, 7",
+                    "image": "https://example.com/cinema-test.jpg",
+                    "time": f"{date}T18:00:00",
+                    "price": "€10",
+                    "city": city
+                })
+            if place_type == "park" or not place_type:
+                recommendations.append({
+                    "type": "park",
+                    "id": f"test-park-1-{city.lower().replace(' ', '-')}",
+                    "name": f"Тестовый парк {city}",
+                    "address": f"{city}, Зеленая аллея, 3",
+                    "image": "https://example.com/park-test.jpg",
+                    "time": f"{date}T12:00:00",
+                    "city": city
+                })
+            if place_type == "event" or not place_type:
+                recommendations.append({
+                    "type": "event",
+                    "id": f"test-event-1-{city.lower().replace(' ', '-')}",
+                    "name": f"Тестовое событие в {city}",
+                    "address": f"{city}, Площадь развлечений, 15",
+                    "image": "https://example.com/event-test.jpg",
+                    "time": f"{date}T19:30:00",
+                    "price": "€20",
+                    "city": city
+                })
+                
+        # Фильтруем рекомендации по типу, если он указан
+        if place_type:
+            filtered_recommendations = [rec for rec in recommendations if rec["type"] == place_type]
+            logger.info(f"После фильтрации по типу {place_type} осталось {len(filtered_recommendations)} из {len(recommendations)} мест")
+            recommendations = filtered_recommendations
+                
+        # Для отладки
+        logger.info(f"Найдено {len(recommendations)} вариантов для города {city} на дату {date}, тип: {place_type}")
+        
+        # Если все равно нет результатов, явно сообщаем об этом в логах
+        if len(recommendations) == 0:
+            logger.error(f"ОШИБКА: После всех попыток не удалось получить рекомендации для города {city}, типа {place_type}!")
                 
         return recommendations
 
@@ -257,6 +463,8 @@ class BookingService:
             place_type = place_data.get("type")
             place_id = place_data.get("id")
             reservation_time = place_data.get("time")
+            
+            logger.info(f"create_reservation вызван с данными: user_id={user_id}, match_id={match_id}, place_type={place_type}, place_id={place_id}, place_data={place_data}")
             
             # Проверяем, существует ли место в нашей БД
             place_query = select(Place).where(Place.external_id == str(place_id))
@@ -296,15 +504,21 @@ class BookingService:
                 # Покупаем билет на событие
                 res = await self.eventbrite.purchase_ticket(place_id, 2)
                 
+            # Форматируем время для бронирования
+            formatted_reservation_time = reservation_time
+            if not formatted_reservation_time or formatted_reservation_time == "":
+                formatted_reservation_time = f"{datetime.now().strftime('%Y-%m-%d')}T19:00:00"
+                logger.warning(f"Пустое время бронирования, используем значение по умолчанию: {formatted_reservation_time}")
+            
             # Создаем запись о бронировании
             new_reservation = Reservation(
                 user_id=user_id,
                 match_id=match_id,
                 place_id=place.id,  # Используем ID из нашей БД
-                reservation_time=reservation_time,
+                reservation_time=formatted_reservation_time,
                 status=res.get("status", "confirmed"),
                 details=res,
-                external_reference=res.get("confirmation_number") or res.get("confirmation_code") or res.get("order_id") or ""
+                external_reference=res.get("confirmation_number") or res.get("confirmation_code") or res.get("order_id") or f"booking-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             )
             session.add(new_reservation)
             

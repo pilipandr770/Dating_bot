@@ -1,0 +1,195 @@
+import logging
+import traceback
+from aiogram import types, Dispatcher
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from app.database import get_session
+from app.booking.keyboards import create_place_keyboard, create_place_type_keyboard
+from app.booking.services_db import VenueService
+from app.booking.services_admin_message import AdminMessageService
+
+# Define BookingState here since it's not in models.py
+class BookingState(StatesGroup):
+    waiting_for_city = State()
+    waiting_for_place_type = State()
+    waiting_for_place = State()
+    waiting_for_confirmation = State()
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Create a file handler for this module only
+file_handler = logging.FileHandler('patched_handler.log')
+file_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - PATCHED_HANDLER - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+# Add the file handler to the logger
+logger.addHandler(file_handler)
+
+logger.info("PATCHED_HANDLER MODULE LOADED")
+
+def log_debug_to_file(message, data=None):
+    """Write debug info to a separate file for easier tracking"""
+    import datetime
+    import json
+    import os
+    
+    debug_dir = os.path.join(os.getcwd(), 'debug_logs')
+    os.makedirs(debug_dir, exist_ok=True)
+    
+    debug_file = os.path.join(debug_dir, 'admin_message_debug.log')
+    
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+    
+    with open(debug_file, 'a', encoding='utf-8') as f:
+        f.write(f"[{timestamp}] {message}\n")
+        if data:
+            try:
+                if isinstance(data, dict):
+                    f.write(f"DATA: {json.dumps(data, ensure_ascii=False)}\n")
+                else:
+                    f.write(f"DATA: {data}\n")
+            except:
+                f.write(f"DATA: [Unable to serialize]\n")
+        f.write("\n")
+
+async def process_place_type(callback_query: types.CallbackQuery, state: FSMContext):
+    """Patched handler to process place type selection with detailed logging"""
+    try:
+        logger.info("PATCHED_HANDLER: process_place_type called")
+        
+        # Get data from state
+        data = await state.get_data()
+        city = data.get('city')
+        place_type = callback_query.data.split(':')[1]
+        
+        logger.info(f"PATCHED_HANDLER: Processing place type '{place_type}' for city '{city}'")
+        
+        # Set state data
+        await state.update_data(place_type=place_type)
+        
+        # Get admin message with special handling
+        admin_message = None
+        async for session in get_session():
+            try:
+                logger.debug(f"PATCHED_HANDLER: Getting admin message for city={city}, place_type={place_type}")
+                
+                # First try flexible method if available
+                try:
+                    if hasattr(AdminMessageService, 'get_admin_message_flexible'):
+                        admin_message = await AdminMessageService.get_admin_message_flexible(session, city, place_type)
+                        logger.info(f"PATCHED_HANDLER: Got admin message (flexible): {admin_message}")
+                    else:
+                        admin_message = await AdminMessageService.get_admin_message(session, city, place_type)
+                        logger.info(f"PATCHED_HANDLER: Got admin message (standard): {admin_message}")
+                except Exception as e:
+                    logger.error(f"PATCHED_HANDLER: Error getting admin message: {e}")
+                    logger.error(traceback.format_exc())
+                    
+                # If still no message, try direct SQL as fallback
+                if not admin_message:
+                    try:
+                        from sqlalchemy import text
+                        # Try case-insensitive match with city pattern
+                        query = text("SELECT message FROM dating_bot.admin_messages WHERE LOWER(place_type) = LOWER(:place_type)")
+                        result = await session.execute(query.bindparams(place_type=place_type))
+                        admin_message = result.scalar()
+                        logger.info(f"PATCHED_HANDLER: Got admin message (direct SQL fallback): {admin_message}")
+                    except Exception as e:
+                        logger.error(f"PATCHED_HANDLER: Error in SQL fallback: {e}")
+            except Exception as e:
+                logger.error(f"PATCHED_HANDLER: Error in admin message retrieval block: {e}")
+                logger.error(traceback.format_exc())
+        
+        # Get venues
+        venues = []
+        try:
+            async for session in get_session():
+                venues = await VenueService.get_venues_by_type_and_city(session, place_type, city)
+                logger.info(f"PATCHED_HANDLER: Got {len(venues)} venues for {city}/{place_type}")
+        except Exception as e:
+            logger.error(f"PATCHED_HANDLER: Error getting venues: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Create message content
+        message_content = ""
+        
+        # Add admin message if available
+        if admin_message:
+            message_content += f"ℹ️ {admin_message}\n\n"
+            logger.info(f"PATCHED_HANDLER: Added admin message to content: {message_content[:50]}...")
+        else:
+            logger.warning(f"PATCHED_HANDLER: No admin message available for {city}/{place_type}")
+            # Use a default message as fallback
+            message_content += f"ℹ️ Explore our selection of {place_type}s in {city}\n\n"
+            logger.info(f"PATCHED_HANDLER: Added default message")
+        
+        # Add venue list or "coming soon" message
+        if venues:
+            message_content += f"🏙️ Here are {place_type}s in {city}:"
+            keyboard = await create_place_keyboard(venues)
+            logger.info(f"PATCHED_HANDLER: Added venue list intro and created keyboard")
+        else:
+            message_content += f"🏙️ {place_type.capitalize()}s in {city} coming soon!"
+            keyboard = None
+            logger.info(f"PATCHED_HANDLER: Added 'coming soon' message")
+        
+        # Edit message with new content
+        try:
+            if keyboard:
+                await callback_query.message.edit_text(message_content, reply_markup=keyboard)
+            else:
+                await callback_query.message.edit_text(message_content)
+            logger.info(f"PATCHED_HANDLER: Message edited successfully")
+        except Exception as e:
+            logger.error(f"PATCHED_HANDLER: Error editing message: {e}")
+            logger.error(traceback.format_exc())
+            
+            # Try sending a new message as fallback
+            try:
+                if keyboard:
+                    await callback_query.message.answer(message_content, reply_markup=keyboard)
+                else:
+                    await callback_query.message.answer(message_content)
+                logger.info(f"PATCHED_HANDLER: Sent new message as fallback")
+            except Exception as e:
+                logger.error(f"PATCHED_HANDLER: Error sending fallback message: {e}")
+                logger.error(traceback.format_exc())
+                
+                # Last resort - send very simple message
+                try:
+                    simple_msg = f"Selected {place_type} in {city}. Please check available options."
+                    await callback_query.message.answer(simple_msg)
+                    logger.info(f"PATCHED_HANDLER: Sent simplified fallback message")
+                except Exception as e:
+                    logger.error(f"PATCHED_HANDLER: Error sending simplified message: {e}")
+        
+        # Always answer callback query to prevent hanging "loading" state
+        try:
+            await callback_query.answer()
+            logger.info(f"PATCHED_HANDLER: Callback query answered")
+        except Exception as e:
+            logger.error(f"PATCHED_HANDLER: Error answering callback: {e}")
+        
+    except Exception as e:
+        logger.error(f"PATCHED_HANDLER: Unhandled exception in process_place_type: {e}")
+        logger.error(traceback.format_exc())
+        try:
+            await callback_query.answer("An error occurred. Please try again.")
+            await callback_query.message.answer("An error occurred while processing your request. Please try again.")
+        except:
+            pass
+
+def register_booking_handlers(dp: Dispatcher):
+    """Register all booking related handlers"""
+    logger.info("PATCHED_HANDLER: Registering booking handlers")
+    
+    # Keep all your original handler registrations but use the patched process_place_type
+    dp.register_callback_query_handler(
+        process_place_type,
+        lambda c: c.data.startswith('place_type:'),
+        state=BookingState.waiting_for_place_type
+    )
+    
+    logger.info("PATCHED_HANDLER: Handlers registered successfully")
